@@ -1,0 +1,75 @@
+import { describe, expect, test } from "bun:test"
+import {
+  augmentedPath,
+  groupProblems,
+  isPublished,
+  parseCheck,
+  previewUrl,
+  publishMode,
+  splitCommand,
+  summary,
+  toggledPublish,
+  type Problem,
+} from "../src/logic"
+
+describe("publishing", () => {
+  test("the vault's mode comes from datme.yaml, explicit by default", () => {
+    expect(publishMode(null)).toBe("explicit")
+    expect(publishMode("site:\n  title: x\npublish: all # everything\n")).toBe("all")
+    expect(publishMode("site:\n  publish: all\n")).toBe("explicit")
+  })
+
+  test("a note is published as datme decides it", () => {
+    expect(isPublished({ publish: true }, "explicit")).toBe(true)
+    expect(isPublished({ publish: "true" }, "explicit")).toBe(true)
+    expect(isPublished({}, "explicit")).toBe(false)
+    expect(isPublished(undefined, "all")).toBe(true)
+    expect(isPublished({ publish: false }, "all")).toBe(false)
+  })
+
+  test("toggling sets the key it needs, and removes it when the default does the job", () => {
+    expect(toggledPublish({}, "explicit")).toBe(true)
+    expect(toggledPublish({ publish: true }, "explicit")).toBeUndefined()
+    expect(toggledPublish({}, "all")).toBe(false)
+    expect(toggledPublish({ publish: false }, "all")).toBeUndefined()
+  })
+})
+
+describe("running datme", () => {
+  test("the command splits into words, quotes kept together", () => {
+    expect(splitCommand("bunx @dynamotn/datme")).toEqual(["bunx", "@dynamotn/datme"])
+    expect(splitCommand('"/Applications/My Tools/datme" --fresh')).toEqual(["/Applications/My Tools/datme", "--fresh"])
+  })
+
+  test("PATH gains the usual tool folders once", () => {
+    expect(augmentedPath("/usr/bin:/opt/homebrew/bin", "/Users/me")).toBe(
+      "/usr/bin:/opt/homebrew/bin:/Users/me/.bun/bin:/usr/local/bin:/Users/me/.local/bin:/Users/me/.npm-global/bin",
+    )
+  })
+
+  test("the check report is read even after other output", () => {
+    const r = parseCheck('Checking…\n{"counts":{"error":1,"warning":0,"info":0},"problems":[{"level":"error","file":"a.md","message":"x"}]}\n')
+    expect(r.counts.error).toBe(1)
+    expect(() => parseCheck("command not found")).toThrow("did not answer")
+  })
+
+  test("problems group by file, the worst first, notices only on request", () => {
+    const ps: Problem[] = [
+      { level: "info", file: "c.md", message: "private link" },
+      { level: "warning", file: "a.md", message: "w" },
+      { level: "error", file: "b.md", message: "e" },
+      { level: "error", file: "a.md", message: "e2" },
+    ]
+    expect(groupProblems(ps).map(([f, list]) => [f, list.map((p) => p.level)])).toEqual([
+      ["a.md", ["error", "warning"]],
+      ["b.md", ["error"]],
+    ])
+    expect(groupProblems(ps, true)).toHaveLength(3)
+  })
+
+  test("summaries and preview addresses", () => {
+    expect(summary({ error: 2, warning: 1, info: 4 })).toBe("2 errors, 1 warning")
+    expect(summary({ error: 0, warning: 0, info: 4 })).toBe("no problems")
+    expect(previewUrl(4321, "/Books/Dune\n")).toBe("http://localhost:4321/Books/Dune")
+  })
+})

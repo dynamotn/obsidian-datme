@@ -1,0 +1,10 @@
+{
+  "id": "datme",
+  "name": "datme",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.7",
+  "description": "Publish notes to your datme digital garden: toggle publishing, check the garden for broken links, and preview the current note.",
+  "author": "Trần Đức Nam",
+  "authorUrl": "https://gitlab.com/dynamo-tools/datme",
+  "isDesktopOnly": true
+}
