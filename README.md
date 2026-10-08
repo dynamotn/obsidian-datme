@@ -18,8 +18,25 @@ your digital garden without leaving Obsidian.
   if it isn't running, then opens the note as the site will show it. *Stop the
   preview server* ends it, as does closing Obsidian.
 
-The plugin runs the datme command, so it's for desktop only and needs
-[Bun](https://bun.sh) or Node 23.6+.
+Checking, previewing and suggesting run the datme command, so they need the
+desktop app and [Bun](https://bun.sh) or Node 23.6+.
+
+## On a phone or tablet
+
+The plugin also runs in Obsidian on mobile, with what needs no command:
+
+- whether the current note is published, and flipping it, from the note's menu
+  (*datme: publish* or *datme: keep private*) or the command palette;
+- the last check report. Each check on a computer saves it in
+  `.datme/check.json` (the *Save the check report* setting), so it reaches
+  the phone with the rest of the vault. CI can write it too:
+
+  ```bash
+  datme check --json > .datme/check.json || true
+  ```
+
+  *Check the garden for problems* shows that report on a phone, with how old
+  it is; *Show the last saved check report* does on a computer.
 
 ## Install
 

@@ -1,11 +1,11 @@
 /**
  * datme for Obsidian: toggle whether a note is published, check the garden for
  * broken links, preview the current note as the site will show it, and suggest
- * links while writing. The plugin runs the datme command, so it works on
- * desktop only.
+ * links while writing. Whatever runs the datme command needs the desktop app;
+ * on a phone the plugin still shows and flips whether a note is published, and
+ * the last check report saved in the vault.
  */
-import { spawn, type ChildProcess } from "node:child_process"
-import os from "node:os"
+import type { ChildProcess } from "node:child_process"
 import {
   debounce,
   FileSystemAdapter,
@@ -13,6 +13,7 @@ import {
   MarkdownView,
   Modal,
   Notice,
+  Platform,
   Plugin,
   PluginSettingTab,
   Setting,
@@ -23,6 +24,7 @@ import {
 import {
   augmentedPath,
   groupProblems,
+  ago,
   isPublished,
   mentionLink,
   parseCheck,
@@ -41,15 +43,28 @@ import {
 
 const SUGGESTIONS_VIEW = "datme-suggestions"
 
+/** Where a check report is saved for the other devices of the vault, and where CI can write one. */
+export const REPORT = ".datme/check.json"
+
+/** Node's process modules, which only the desktop app has: loaded when a command needs them. */
+function node() {
+  return {
+    spawn: (require("node:child_process") as typeof import("node:child_process")).spawn,
+    os: require("node:os") as typeof import("node:os"),
+  }
+}
+
 interface Settings {
   /** How to run datme: a path, or a command with its first arguments. */
   command: string
   port: number
   /** Show links to unpublished notes and other notices in the check report. */
   showNotices: boolean
+  /** Save each check report in the vault, for the plugin on a phone. */
+  saveReport: boolean
 }
 
-const DEFAULTS: Settings = { command: "bunx @dynamotn/datme", port: 4321, showNotices: false }
+const DEFAULTS: Settings = { command: "bunx @dynamotn/datme", port: 4321, showNotices: false, saveReport: true }
 
 export default class DatmePlugin extends Plugin {
   settings: Settings = { ...DEFAULTS }
@@ -61,7 +76,8 @@ export default class DatmePlugin extends Plugin {
     this.settings = { ...DEFAULTS, ...((await this.loadData()) as Partial<Settings> | null) }
     await this.readMode()
 
-    this.addRibbonIcon("sprout", "datme: preview this note", () => void this.openPreview())
+    const desktop = Platform.isDesktopApp
+    if (desktop) this.addRibbonIcon("sprout", "datme: preview this note", () => void this.openPreview())
     this.statusEl = this.addStatusBarItem()
     this.statusEl.addClass("mod-clickable")
     this.statusEl.addEventListener("click", () => void this.togglePublish())
@@ -70,6 +86,19 @@ export default class DatmePlugin extends Plugin {
     this.registerEvent(
       this.app.vault.on("modify", (f) => {
         if (f.path === "datme.yaml") void this.readMode().then(() => this.updateStatus())
+      }),
+    )
+    // Phones have no status bar: the note's menu says and flips its state there too.
+    this.registerEvent(
+      this.app.workspace.on("file-menu", (menu, file) => {
+        if (!(file instanceof TFile) || file.extension !== "md") return
+        const published = isPublished(this.app.metadataCache.getFileCache(file)?.frontmatter, this.mode)
+        menu.addItem((item) =>
+          item
+            .setTitle(published ? "datme: keep private" : "datme: publish")
+            .setIcon(published ? "lock" : "sprout")
+            .onClick(() => void this.togglePublish(file)),
+        )
       }),
     )
 
@@ -82,11 +111,15 @@ export default class DatmePlugin extends Plugin {
         return !!file
       },
     })
-    this.addCommand({ id: "check", name: "Check the garden for problems", callback: () => void this.check() })
-    this.addCommand({ id: "preview", name: "Preview the current note", callback: () => void this.openPreview() })
-    this.addCommand({ id: "stop-preview", name: "Stop the preview server", callback: () => this.stopPreview() })
-    this.registerView(SUGGESTIONS_VIEW, (leaf) => new SuggestionsView(leaf, this))
-    this.addCommand({ id: "suggestions", name: "Show link suggestions", callback: () => void this.openSuggestions() })
+    // On a phone, checking means reading the last report a computer or CI saved.
+    this.addCommand({ id: "check", name: "Check the garden for problems", callback: () => void (desktop ? this.check() : this.showSavedReport()) })
+    this.addCommand({ id: "last-report", name: "Show the last saved check report", callback: () => void this.showSavedReport() })
+    if (desktop) {
+      this.addCommand({ id: "preview", name: "Preview the current note", callback: () => void this.openPreview() })
+      this.addCommand({ id: "stop-preview", name: "Stop the preview server", callback: () => this.stopPreview() })
+      this.registerView(SUGGESTIONS_VIEW, (leaf) => new SuggestionsView(leaf, this))
+      this.addCommand({ id: "suggestions", name: "Show link suggestions", callback: () => void this.openSuggestions() })
+    }
     this.addSettingTab(new DatmeSettings(this.app, this))
     this.updateStatus()
   }
@@ -125,8 +158,7 @@ export default class DatmePlugin extends Plugin {
     this.statusEl.setAttribute("aria-label", published ? "datme publishes this note; click to unpublish" : "Click to publish this note with datme")
   }
 
-  async togglePublish() {
-    const file = this.markdownFile()
+  async togglePublish(file = this.markdownFile()) {
     if (!file) return
     let now = false
     await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
@@ -159,7 +191,7 @@ export default class DatmePlugin extends Plugin {
   run(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
     const [program, ...lead] = splitCommand(this.settings.command)
     return new Promise((resolve, reject) => {
-      const child = spawn(program, [...lead, ...args], { env: this.env(), cwd: this.vaultPath() })
+      const child = node().spawn(program, [...lead, ...args], { env: this.env(), cwd: this.vaultPath() })
       let stdout = ""
       let stderr = ""
       child.stdout.on("data", (d) => (stdout += d))
@@ -170,7 +202,7 @@ export default class DatmePlugin extends Plugin {
   }
 
   private env(): NodeJS.ProcessEnv {
-    return { ...process.env, PATH: augmentedPath(process.env.PATH, os.homedir()), FORCE_COLOR: "0", NO_COLOR: "1" }
+    return { ...process.env, PATH: augmentedPath(process.env.PATH, node().os.homedir()), FORCE_COLOR: "0", NO_COLOR: "1" }
   }
 
   async check() {
@@ -186,6 +218,34 @@ export default class DatmePlugin extends Plugin {
     notice.hide()
     new Notice(`datme: ${summary(result.counts)}`)
     new ProblemsModal(this.app, result, this.settings.showNotices).open()
+    if (this.settings.saveReport) await this.saveReport(result)
+  }
+
+  /** Keep the report in the vault, where the plugin on another device finds it once the vault syncs. */
+  private async saveReport(result: CheckResult) {
+    const adapter = this.app.vault.adapter
+    try {
+      if (!(await adapter.exists(".datme"))) await adapter.mkdir(".datme")
+      await adapter.write(REPORT, JSON.stringify(result))
+    } catch {
+      // a read-only vault only means no report for the other devices
+    }
+  }
+
+  /** The report a computer or CI saved last, with how old it is. */
+  async showSavedReport() {
+    const adapter = this.app.vault.adapter
+    if (!(await adapter.exists(REPORT))) {
+      return void new Notice(`No saved check report yet: run "Check the garden" on a computer, or have CI write ${REPORT}.`, 8000)
+    }
+    let result: CheckResult
+    try {
+      result = parseCheck(await adapter.read(REPORT))
+    } catch (e) {
+      return void new Notice(`The saved check report cannot be read: ${(e as Error).message}`, 8000)
+    }
+    const saved = (await adapter.stat(REPORT))?.mtime
+    new ProblemsModal(this.app, result, this.settings.showNotices, saved ? ago(saved, Date.now()) : undefined).open()
   }
 
   /** Start `datme dev` unless it runs already, and wait until it answers. */
@@ -194,7 +254,7 @@ export default class DatmePlugin extends Plugin {
     if (await answers(url)) return true
     if (!this.preview) {
       const [program, ...lead] = splitCommand(this.settings.command)
-      this.preview = spawn(program, [...lead, "dev", this.vaultPath(), "--port", String(this.settings.port)], {
+      this.preview = node().spawn(program, [...lead, "dev", this.vaultPath(), "--port", String(this.settings.port)], {
         env: this.env(),
         cwd: this.vaultPath(),
       })
@@ -361,6 +421,8 @@ class ProblemsModal extends Modal {
     app: App,
     private result: CheckResult,
     private withInfo: boolean,
+    /** For a saved report: how long ago it was saved. */
+    private age?: string,
   ) {
     super(app)
   }
@@ -368,6 +430,7 @@ class ProblemsModal extends Modal {
   override onOpen() {
     const { contentEl } = this
     this.setTitle(`datme check: ${summary(this.result.counts)}`)
+    if (this.age) contentEl.createEl("p", { text: `Saved ${this.age}.`, cls: "u-muted" })
     const groups = groupProblems(this.result.problems, this.withInfo)
     if (!groups.length) return void contentEl.createEl("p", { text: "🌱 The garden is healthy." })
     const icon = { error: "⛔", warning: "⚠️", info: "ℹ️" }
@@ -422,8 +485,17 @@ class DatmeSettings extends PluginSettingTab {
         }),
       )
     new Setting(containerEl)
+      .setName("Save the check report")
+      .setDesc(`Keep the last report in ${REPORT}, so the plugin on your phone can show it once the vault syncs.`)
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.saveReport).onChange(async (v) => {
+          this.plugin.settings.saveReport = v
+          await this.plugin.saveSettings()
+        }),
+      )
+    new Setting(containerEl)
       .setName("Show notices")
-      .setDesc("Also list links to unpublished notes and scheduled notes in the check report.")
+      .setDesc("Also list notices in the check report: links to unpublished notes, scheduled notes, orphans, dead ends and hubs.")
       .addToggle((t) =>
         t.setValue(this.plugin.settings.showNotices).onChange(async (v) => {
           this.plugin.settings.showNotices = v

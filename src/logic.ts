@@ -146,3 +146,18 @@ export function relatedWhy(r: Related): string {
     .filter(Boolean)
     .join(" · ")
 }
+
+/** How long ago a time was, in the largest whole unit: "just now", "5 minutes ago", "2 days ago". */
+export function ago(then: number, now: number): string {
+  const s = Math.max(0, Math.round((now - then) / 1000))
+  const units: [string, number][] = [
+    ["day", 86_400],
+    ["hour", 3_600],
+    ["minute", 60],
+  ]
+  for (const [name, size] of units) {
+    const n = Math.floor(s / size)
+    if (n >= 1) return `${n} ${name}${n === 1 ? "" : "s"} ago`
+  }
+  return "just now"
+}

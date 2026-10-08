@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+  ago,
   augmentedPath,
   groupProblems,
   isPublished,
@@ -100,5 +101,25 @@ describe("suggestions", () => {
     expect(relatedWhy({ file: "a.md", title: "a", url: "/a", score: 4, tags: ["pkm", "zk"], links: 2, similarity: 0.71 })).toBe(
       "#pkm #zk · 2 shared links · ≈ 71%",
     )
+  })
+})
+
+describe("ago", () => {
+  test("says how long ago in the largest whole unit", () => {
+    const now = Date.UTC(2026, 9, 8, 12)
+    expect(ago(now - 20_000, now)).toBe("just now")
+    expect(ago(now - 60_000, now)).toBe("1 minute ago")
+    expect(ago(now - 5 * 3_600_000, now)).toBe("5 hours ago")
+    expect(ago(now - 3 * 86_400_000, now)).toBe("3 days ago")
+  })
+})
+
+describe("on a phone", () => {
+  test("the plugin loads no Node module up front, and the manifest allows mobile", async () => {
+    const main = await Bun.file(new URL("../src/main.ts", import.meta.url)).text()
+    // Only type imports from node: at the top; the modules themselves load on desktop, when needed.
+    expect(main.match(/^import (?!type )[^\n]*from "node:/gm)).toBeNull()
+    const manifest = await Bun.file(new URL("../manifest.json", import.meta.url)).json()
+    expect(manifest.isDesktopOnly).toBe(false)
   })
 })
