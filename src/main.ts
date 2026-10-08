@@ -13,6 +13,7 @@ import {
   MarkdownView,
   Modal,
   Notice,
+  parseYaml,
   Platform,
   Plugin,
   PluginSettingTab,
@@ -23,6 +24,8 @@ import {
 } from "obsidian"
 import {
   augmentedPath,
+  gardenConfig,
+  gardenCounts,
   groupProblems,
   ago,
   isPublished,
@@ -30,18 +33,18 @@ import {
   parseCheck,
   parseSuggestions,
   previewUrl,
-  publishMode,
   relatedWhy,
   splitCommand,
   summary,
   toggledPublish,
   type CheckResult,
+  type GardenConfig,
   type Mention,
-  type PublishMode,
   type Suggestions,
 } from "./logic"
 
 const SUGGESTIONS_VIEW = "datme-suggestions"
+const DASHBOARD_VIEW = "datme-dashboard"
 
 /** Where a check report is saved for the other devices of the vault, and where CI can write one. */
 export const REPORT = ".datme/check.json"
@@ -70,7 +73,13 @@ export default class DatmePlugin extends Plugin {
   settings: Settings = { ...DEFAULTS }
   private preview: ChildProcess | undefined
   private statusEl: HTMLElement | undefined
-  private mode: PublishMode = "explicit"
+  config: GardenConfig = gardenConfig(null)
+  /** The last check report, run here or saved by another device or CI; when it was made. */
+  report: { result: CheckResult; at?: number } | undefined
+
+  private get mode() {
+    return this.config.mode
+  }
 
   override async onload() {
     this.settings = { ...DEFAULTS, ...((await this.loadData()) as Partial<Settings> | null) }
@@ -114,11 +123,13 @@ export default class DatmePlugin extends Plugin {
     // On a phone, checking means reading the last report a computer or CI saved.
     this.addCommand({ id: "check", name: "Check the garden for problems", callback: () => void (desktop ? this.check() : this.showSavedReport()) })
     this.addCommand({ id: "last-report", name: "Show the last saved check report", callback: () => void this.showSavedReport() })
+    this.registerView(DASHBOARD_VIEW, (leaf) => new DashboardView(leaf, this))
+    this.addCommand({ id: "dashboard", name: "Open the garden dashboard", callback: () => void this.openView(DASHBOARD_VIEW) })
     if (desktop) {
       this.addCommand({ id: "preview", name: "Preview the current note", callback: () => void this.openPreview() })
       this.addCommand({ id: "stop-preview", name: "Stop the preview server", callback: () => this.stopPreview() })
       this.registerView(SUGGESTIONS_VIEW, (leaf) => new SuggestionsView(leaf, this))
-      this.addCommand({ id: "suggestions", name: "Show link suggestions", callback: () => void this.openSuggestions() })
+      this.addCommand({ id: "suggestions", name: "Show link suggestions", callback: () => void this.openView(SUGGESTIONS_VIEW) })
     }
     this.addSettingTab(new DatmeSettings(this.app, this))
     this.updateStatus()
@@ -144,8 +155,14 @@ export default class DatmePlugin extends Plugin {
   }
 
   private async readMode() {
-    const exists = await this.app.vault.adapter.exists("datme.yaml")
-    this.mode = publishMode(exists ? await this.app.vault.adapter.read("datme.yaml") : null)
+    const adapter = this.app.vault.adapter
+    let parsed: unknown = null
+    try {
+      if (await adapter.exists("datme.yaml")) parsed = parseYaml(await adapter.read("datme.yaml"))
+    } catch {
+      // datme check reports a broken datme.yaml; here it counts as the defaults
+    }
+    this.config = gardenConfig(parsed)
   }
 
   private updateStatus() {
@@ -170,14 +187,21 @@ export default class DatmePlugin extends Plugin {
     new Notice(now ? `🌱 ${file.basename} will be published` : `🔒 ${file.basename} stays private`)
   }
 
-  /** The suggestions pane in the right sidebar, opened once. */
-  async openSuggestions() {
-    let leaf = this.app.workspace.getLeavesOfType(SUGGESTIONS_VIEW)[0]
+  /** A pane of the plugin in the right sidebar, opened once. */
+  async openView(type: string) {
+    let leaf = this.app.workspace.getLeavesOfType(type)[0]
     if (!leaf) {
       leaf = this.app.workspace.getRightLeaf(false)!
-      await leaf.setViewState({ type: SUGGESTIONS_VIEW, active: true })
+      await leaf.setViewState({ type, active: true })
     }
     void this.app.workspace.revealLeaf(leaf)
+  }
+
+  /** The URL path of a published note, from `datme url`; undefined when it is private or on a phone. */
+  async noteUrl(file: TFile): Promise<string | undefined> {
+    if (!Platform.isDesktopApp) return undefined
+    const out = await this.run(["url", file.path, this.vaultPath()]).catch(() => undefined)
+    return out && out.code === 0 ? out.stdout.trim().split("\n").pop() : undefined
   }
 
   /** Related notes and unlinked mentions of a note, from `datme related`. */
@@ -218,6 +242,8 @@ export default class DatmePlugin extends Plugin {
     notice.hide()
     new Notice(`datme: ${summary(result.counts)}`)
     new ProblemsModal(this.app, result, this.settings.showNotices).open()
+    this.report = { result, at: Date.now() }
+    for (const leaf of this.app.workspace.getLeavesOfType(DASHBOARD_VIEW)) (leaf.view as DashboardView).refresh()
     if (this.settings.saveReport) await this.saveReport(result)
   }
 
@@ -232,20 +258,24 @@ export default class DatmePlugin extends Plugin {
     }
   }
 
+  /** The report saved in the vault, and when; undefined when there is none or it cannot be read. */
+  async savedReport(): Promise<{ result: CheckResult; at?: number } | undefined> {
+    const adapter = this.app.vault.adapter
+    try {
+      if (!(await adapter.exists(REPORT))) return undefined
+      return { result: parseCheck(await adapter.read(REPORT)), at: (await adapter.stat(REPORT))?.mtime }
+    } catch {
+      return undefined
+    }
+  }
+
   /** The report a computer or CI saved last, with how old it is. */
   async showSavedReport() {
-    const adapter = this.app.vault.adapter
-    if (!(await adapter.exists(REPORT))) {
+    const saved = await this.savedReport()
+    if (!saved) {
       return void new Notice(`No saved check report yet: run "Check the garden" on a computer, or have CI write ${REPORT}.`, 8000)
     }
-    let result: CheckResult
-    try {
-      result = parseCheck(await adapter.read(REPORT))
-    } catch (e) {
-      return void new Notice(`The saved check report cannot be read: ${(e as Error).message}`, 8000)
-    }
-    const saved = (await adapter.stat(REPORT))?.mtime
-    new ProblemsModal(this.app, result, this.settings.showNotices, saved ? ago(saved, Date.now()) : undefined).open()
+    new ProblemsModal(this.app, saved.result, this.settings.showNotices, saved.at ? ago(saved.at, Date.now()) : undefined).open()
   }
 
   /** Start `datme dev` unless it runs already, and wait until it answers. */
@@ -413,6 +443,95 @@ class SuggestionsView extends ItemView {
     if (text.slice(m.offset, m.offset + m.text.length) !== m.text) return moved()
     await this.app.vault.modify(file, text.slice(0, m.offset) + mentionLink(m) + text.slice(m.offset + m.text.length))
     return true
+  }
+}
+
+/**
+ * The state of the garden at a glance: how many notes are published, private,
+ * drafts or scheduled, the problems of the last check, and links to the site
+ * and to the current note on it. It works on a phone too, from the saved report.
+ */
+class DashboardView extends ItemView {
+  refresh = debounce(() => void this.update(), 1000, true)
+  /** URL paths of notes, asked of datme once per note until its frontmatter changes. */
+  private urls = new Map<string, Promise<string | undefined>>()
+
+  constructor(
+    leaf: WorkspaceLeaf,
+    private plugin: DatmePlugin,
+  ) {
+    super(leaf)
+  }
+
+  getViewType() {
+    return DASHBOARD_VIEW
+  }
+
+  getDisplayText() {
+    return "Garden dashboard"
+  }
+
+  override getIcon() {
+    return "sprout"
+  }
+
+  override async onOpen() {
+    this.registerEvent(this.app.metadataCache.on("resolved", () => this.refresh()))
+    this.registerEvent(this.app.workspace.on("file-open", () => this.refresh()))
+    this.registerEvent(this.app.metadataCache.on("changed", (f) => this.urls.delete(f.path)))
+    this.plugin.report ??= await this.plugin.savedReport()
+    await this.update()
+  }
+
+  private async update() {
+    const { config, report } = this.plugin
+    const notes = this.app.vault.getMarkdownFiles().map((f) => ({ path: f.path, fm: this.app.metadataCache.getFileCache(f)?.frontmatter }))
+    const counts = gardenCounts(notes, config, new Date())
+    const active = this.app.workspace.getActiveFile()
+    let noteUrl: string | undefined
+    if (active?.extension === "md" && config.url) {
+      if (!this.urls.has(active.path)) this.urls.set(active.path, this.plugin.noteUrl(active))
+      noteUrl = await this.urls.get(active.path)
+    }
+    const el = this.contentEl
+    el.empty()
+    el.createEl("h4", { text: "Garden" })
+    const list = el.createEl("ul")
+    list.createEl("li", { text: `🌱 ${counts.published} published${counts.unlisted ? ` (${counts.unlisted} unlisted)` : ""}` })
+    list.createEl("li", { text: `🔒 ${counts.private} private` })
+    if (counts.drafts) list.createEl("li", { text: `📝 ${counts.drafts} draft${counts.drafts === 1 ? "" : "s"}` })
+    if (counts.scheduled.length) {
+      const li = list.createEl("li", { text: `⏳ ${counts.scheduled.length} scheduled` })
+      const days = li.createEl("ul")
+      for (const s of counts.scheduled) this.noteLink(days.createEl("li", { text: `${s.date} ` }), s.path)
+    }
+
+    el.createEl("h4", { text: "Last check" })
+    if (!report) el.createEl("p", { text: Platform.isDesktopApp ? "Not checked yet." : "No saved report yet.", cls: "u-muted" })
+    else {
+      const { error, warning, info } = report.result.counts
+      const p = el.createEl("p", { text: `⛔ ${error} · ⚠️ ${warning} · ℹ️ ${info}` })
+      if (report.at) p.createSpan({ text: ` · ${ago(report.at, Date.now())}`, cls: "u-muted" })
+      el.createEl("button", { text: "Open the report" }).addEventListener("click", () =>
+        new ProblemsModal(this.app, report.result, this.plugin.settings.showNotices, report.at ? ago(report.at, Date.now()) : undefined).open(),
+      )
+    }
+    if (Platform.isDesktopApp) el.createEl("button", { text: "Check now" }).addEventListener("click", () => void this.plugin.check())
+
+    if (config.url) {
+      el.createEl("h4", { text: "On the web" })
+      const links = el.createEl("ul")
+      links.createEl("li").createEl("a", { text: config.url.replace(/^https?:\/\//, ""), href: config.url })
+      if (active && noteUrl) links.createEl("li").createEl("a", { text: active.basename, href: config.url + noteUrl })
+    }
+  }
+
+  private noteLink(parent: HTMLElement, path: string) {
+    const a = parent.createEl("a", { text: path.replace(/\.md$/, ""), href: "#" })
+    a.addEventListener("click", (e) => {
+      e.preventDefault()
+      void this.app.workspace.openLinkText(path, "", false)
+    })
   }
 }
 

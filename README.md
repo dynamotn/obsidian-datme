@@ -14,6 +14,11 @@ your digital garden without leaving Obsidian.
   names a published note without linking to it. *Link* turns such a mention
   into `[[Note|words]]` in place. The pane follows the active note and
   refreshes each time it's saved.
+- **Open the garden dashboard** shows the garden at a glance in the sidebar:
+  how many notes are published (and unlisted), private, drafts or scheduled,
+  with the dates of the scheduled ones; the errors, warnings and notices of the
+  last check, and how old it is; and links to the site (`site.url`) and to the
+  current note on it.
 - **Preview the current note** (also the 🌱 ribbon button) starts `datme dev`
   if it isn't running, then opens the note as the site will show it. *Stop the
   preview server* ends it, as does closing Obsidian.
@@ -27,6 +32,7 @@ The plugin also runs in Obsidian on mobile, with what needs no command:
 
 - whether the current note is published, and flipping it, from the note's menu
   (*datme: publish* or *datme: keep private*) or the command palette;
+- the garden dashboard, without the link to the current note;
 - the last check report. Each check on a computer saves it in
   `.datme/check.json` (the *Save the check report* setting), so it reaches
   the phone with the rest of the vault. CI can write it too:

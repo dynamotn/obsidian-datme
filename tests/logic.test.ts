@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 import {
   ago,
   augmentedPath,
+  gardenConfig,
+  gardenCounts,
   groupProblems,
   isPublished,
   mentionLink,
@@ -121,5 +123,36 @@ describe("on a phone", () => {
     expect(main.match(/^import (?!type )[^\n]*from "node:/gm)).toBeNull()
     const manifest = await Bun.file(new URL("../manifest.json", import.meta.url)).json()
     expect(manifest.isDesktopOnly).toBe(false)
+  })
+})
+
+describe("garden dashboard", () => {
+  test("reads the mode, URL and ignored folders of datme.yaml", () => {
+    expect(gardenConfig({ publish: "all", site: { url: "https://notes.example/" }, ignore: ["/Archive/"] })).toEqual({
+      mode: "all",
+      url: "https://notes.example",
+      ignore: [".obsidian", ".trash", "node_modules", "private", "templates", "Archive"],
+    })
+    expect(gardenConfig(null)).toMatchObject({ mode: "explicit", url: undefined })
+  })
+
+  test("counts notes as datme decides: published, unlisted, private, drafts and scheduled", () => {
+    const now = new Date("2026-10-08T12:00:00Z")
+    const counts = gardenCounts(
+      [
+        { path: "a.md", fm: { publish: true } },
+        { path: "b.md", fm: { publish: true, unlisted: true } },
+        { path: "c.md", fm: { publish: true, draft: true } },
+        { path: "d.md", fm: { publish: true, publish_date: "2026-12-01" } },
+        { path: "e.md", fm: { publish: true, publish_date: "2026-01-01" } },
+        { path: "f.md", fm: { draft: true } },
+        { path: "g.md" },
+        { path: "templates/t.md", fm: { publish: true } },
+        { path: "Archive/old.md", fm: { publish: true } },
+      ],
+      gardenConfig({ ignore: ["Archive"] }),
+      now,
+    )
+    expect(counts).toEqual({ published: 3, unlisted: 1, private: 2, drafts: 1, scheduled: [{ path: "d.md", date: "2026-12-01" }] })
   })
 })

@@ -161,3 +161,57 @@ export function ago(then: number, now: number): string {
   }
   return "just now"
 }
+
+/** What the plugin needs of datme.yaml, parsed by Obsidian's YAML reader. */
+export interface GardenConfig {
+  mode: PublishMode
+  /** Public URL of the site, without a trailing slash. */
+  url?: string
+  /** Folders datme never reads, its own ones included. */
+  ignore: string[]
+}
+
+const DEFAULT_IGNORE = [".obsidian", ".trash", "node_modules", "private", "templates"]
+
+export function gardenConfig(parsed: unknown): GardenConfig {
+  const c = (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>
+  const site = (c.site && typeof c.site === "object" ? c.site : {}) as Record<string, unknown>
+  const ignore = Array.isArray(c.ignore) ? c.ignore.map((p) => String(p).replace(/^\/+|\/+$/g, "")) : []
+  return {
+    mode: c.publish === "all" ? "all" : "explicit",
+    url: typeof site.url === "string" && site.url ? site.url.replace(/\/+$/, "") : undefined,
+    ignore: [...DEFAULT_IGNORE, ...ignore],
+  }
+}
+
+export interface GardenCounts {
+  /** Published now, unlisted ones included. */
+  published: number
+  unlisted: number
+  private: number
+  /** Marked `draft: true`, published once that goes. */
+  drafts: number
+  /** Waiting for their `publish_date`, soonest first. */
+  scheduled: { path: string; date: string }[]
+}
+
+/** How many notes datme publishes, keeps private, holds as drafts or schedules, as it decides it. */
+export function gardenCounts(notes: { path: string; fm?: Record<string, unknown> }[], config: GardenConfig, now: Date): GardenCounts {
+  const counts: GardenCounts = { published: 0, unlisted: 0, private: 0, drafts: 0, scheduled: [] }
+  for (const { path, fm } of notes) {
+    if (path.split("/").some((part) => part.startsWith(".")) || config.ignore.some((ig) => path === ig || path.startsWith(ig + "/"))) continue
+    if (!isPublished(fm, config.mode)) counts.private++
+    else if (flag(fm?.draft) === true) counts.drafts++
+    else {
+      const at = fm?.publish_date ?? fm?.publishDate
+      const date = at == null || at === "" ? undefined : new Date(String(at))
+      if (date && !Number.isNaN(date.getTime()) && date > now) counts.scheduled.push({ path, date: date.toISOString().slice(0, 10) })
+      else {
+        counts.published++
+        if (flag(fm?.unlisted) === true) counts.unlisted++
+      }
+    }
+  }
+  counts.scheduled.sort((a, b) => a.date.localeCompare(b.date) || a.path.localeCompare(b.path))
+  return counts
+}
