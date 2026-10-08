@@ -93,3 +93,56 @@ export function summary(counts: CheckResult["counts"]): string {
 export function previewUrl(port: number, pagePath: string): string {
   return `http://localhost:${port}${pagePath.trim().startsWith("/") ? "" : "/"}${pagePath.trim()}`
 }
+
+export interface Related {
+  file: string
+  title: string
+  url: string
+  score: number
+  tags: string[]
+  links: number
+  similarity?: number
+}
+
+export interface Mention {
+  file: string
+  title: string
+  /** The words as written in the note. */
+  text: string
+  /** Where they start in the file, in characters. */
+  offset: number
+  line: number
+}
+
+export interface Suggestions {
+  file: string
+  published: boolean
+  related: Related[]
+  mentions: Mention[]
+}
+
+/** The JSON of `datme related --json`, which may follow lines the command printed first. */
+export function parseSuggestions(stdout: string): Suggestions {
+  const start = stdout.indexOf('{"file"')
+  if (start < 0) throw new Error("datme did not answer with suggestions")
+  const data = JSON.parse(stdout.slice(start)) as Suggestions
+  if (!Array.isArray(data.related) || !Array.isArray(data.mentions)) throw new Error("datme did not answer with suggestions")
+  return data
+}
+
+/** The wikilink replacing a mention: by file name, with the words as written when they differ from it. */
+export function mentionLink(m: Pick<Mention, "file" | "text">): string {
+  const name = m.file.split("/").pop()!.replace(/\.md$/i, "")
+  return m.text === name ? `[[${name}]]` : `[[${name}|${m.text}]]`
+}
+
+/** Why a note is related, in a few words. */
+export function relatedWhy(r: Related): string {
+  return [
+    r.tags.map((t) => "#" + t).join(" "),
+    r.links ? `${r.links} shared link${r.links === 1 ? "" : "s"}` : "",
+    r.similarity ? `≈ ${Math.round(r.similarity * 100)}%` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ")
+}

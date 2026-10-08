@@ -8,6 +8,12 @@ your digital garden without leaving Obsidian.
   to flip it. The plugin follows the `publish` mode of your `datme.yaml`.
 - **Check the garden for problems** runs `datme check` and lists broken links,
   missing files and invalid frontmatter by note; click a note to open it.
+- **Show link suggestions** opens a pane beside the note you're writing. It
+  lists the published notes related to it (shared tags and links, and
+  closeness in meaning with `related.semantic`), and the places where the note
+  names a published note without linking to it. *Link* turns such a mention
+  into `[[Note|words]]` in place. The pane follows the active note and
+  refreshes each time it's saved.
 - **Preview the current note** (also the 🌱 ribbon button) starts `datme dev`
   if it isn't running, then opens the note as the site will show it. *Stop the
   preview server* ends it, as does closing Obsidian.

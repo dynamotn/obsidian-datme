@@ -3,9 +3,12 @@ import {
   augmentedPath,
   groupProblems,
   isPublished,
+  mentionLink,
   parseCheck,
+  parseSuggestions,
   previewUrl,
   publishMode,
+  relatedWhy,
   splitCommand,
   summary,
   toggledPublish,
@@ -71,5 +74,31 @@ describe("running datme", () => {
     expect(summary({ error: 2, warning: 1, info: 4 })).toBe("2 errors, 1 warning")
     expect(summary({ error: 0, warning: 0, info: 4 })).toBe("no problems")
     expect(previewUrl(4321, "/Books/Dune\n")).toBe("http://localhost:4321/Books/Dune")
+  })
+})
+
+describe("suggestions", () => {
+  const json = JSON.stringify({
+    file: "Inbox/Draft.md",
+    published: false,
+    related: [{ file: "Notes/Slip box.md", title: "Slip box", url: "/Notes/Slip-box", score: 3, tags: ["pkm"], links: 1 }],
+    mentions: [{ file: "Notes/Slip box.md", title: "Slip box", text: "slip box", offset: 40, line: 3 }],
+  })
+
+  test("the answer of datme related is read after anything printed before it", () => {
+    const s = parseSuggestions(`[datme] a warning\n${json}`)
+    expect(s.related[0].file).toBe("Notes/Slip box.md")
+    expect(() => parseSuggestions("nothing")).toThrow()
+  })
+
+  test("a mention becomes a link by file name, keeping the words as written", () => {
+    expect(mentionLink({ file: "Notes/Slip box.md", text: "slip box" })).toBe("[[Slip box|slip box]]")
+    expect(mentionLink({ file: "Notes/Slip box.md", text: "Slip box" })).toBe("[[Slip box]]")
+  })
+
+  test("a related note says why", () => {
+    expect(relatedWhy({ file: "a.md", title: "a", url: "/a", score: 4, tags: ["pkm", "zk"], links: 2, similarity: 0.71 })).toBe(
+      "#pkm #zk · 2 shared links · ≈ 71%",
+    )
   })
 })
