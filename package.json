@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Obsidian companion plugin of datme",
-  "license": "CC-BY-SA-4.0",
+  "license": "MPL-2.0",
   "type": "module",
   "scripts": {
     "build": "esbuild src/main.ts --bundle --format=cjs --platform=node --target=es2022 --external:obsidian --external:electron --outfile=main.js",
