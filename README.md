@@ -54,7 +54,7 @@ Until it's in the community directory:
    `<your vault>/.obsidian/plugins/datme/`.
 3. Enable **datme** under Settings → Community plugins.
 
-With [BRAT](https://github.com/TfTHacker/obsidian42-brat), add this repository
+With [BRAT](https://github.com/TfTHacker/obsidian42-brat), add `dynamotn/obsidian-datme`
 instead.
 
 ## Settings
