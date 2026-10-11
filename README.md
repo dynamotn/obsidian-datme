@@ -48,7 +48,7 @@ The plugin also runs in Obsidian on mobile, with what needs no command:
 
 Until it's in the community directory:
 
-1. Build it: `bun install && bun run build` in this folder (or download
+1. Build it: `bun install && bun run build` in a clone of this repository (or download
    `main.js` and `manifest.json` from a release).
 2. Copy `main.js` and `manifest.json` into
    `<your vault>/.obsidian/plugins/datme/`.

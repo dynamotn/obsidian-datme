@@ -1,0 +1,20 @@
+# Type-check, test and build the plugin on every push and pull request.
+name: CI
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run test
+      - run: bun run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin
+          path: |
+            main.js
+            manifest.json
