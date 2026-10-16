@@ -47,6 +47,9 @@ import {
 const SUGGESTIONS_VIEW = "datme-suggestions"
 const DASHBOARD_VIEW = "datme-dashboard"
 
+/** The config files datme looks for at the root of the vault, in its order. */
+const CONFIG_FILES = ["datme.yaml", "datme.yml", ".datme.yaml"]
+
 /** Where a check report is saved for the other devices of the vault, and where CI can write one. */
 export const REPORT = ".datme/check.json"
 
@@ -93,11 +96,14 @@ export default class DatmePlugin extends Plugin {
     this.statusEl.addEventListener("click", () => void this.togglePublish())
     this.registerEvent(this.app.workspace.on("file-open", () => this.updateStatus()))
     this.registerEvent(this.app.metadataCache.on("changed", () => this.updateStatus()))
-    this.registerEvent(
-      this.app.vault.on("modify", (f) => {
-        if (f.path === "datme.yaml") void this.readMode().then(() => this.updateStatus())
-      }),
-    )
+    // The config is read again when it is written, created, deleted or renamed.
+    const reread = (path: string, oldPath?: string) => {
+      if (CONFIG_FILES.includes(path) || (oldPath && CONFIG_FILES.includes(oldPath))) void this.readMode().then(() => this.updateStatus())
+    }
+    this.registerEvent(this.app.vault.on("modify", (f) => reread(f.path)))
+    this.registerEvent(this.app.vault.on("create", (f) => reread(f.path)))
+    this.registerEvent(this.app.vault.on("delete", (f) => reread(f.path)))
+    this.registerEvent(this.app.vault.on("rename", (f, oldPath) => reread(f.path, oldPath)))
     // Phones have no status bar: the note's menu says and flips its state there too.
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file) => {
@@ -159,7 +165,11 @@ export default class DatmePlugin extends Plugin {
     const adapter = this.app.vault.adapter
     let parsed: unknown = null
     try {
-      if (await adapter.exists("datme.yaml")) parsed = parseYaml(await adapter.read("datme.yaml"))
+      for (const name of CONFIG_FILES) {
+        if (!(await adapter.exists(name))) continue
+        parsed = parseYaml(await adapter.read(name))
+        break
+      }
     } catch {
       // datme check reports a broken datme.yaml; here it counts as the defaults
     }
