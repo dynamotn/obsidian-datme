@@ -425,10 +425,11 @@ class SuggestionsView extends ItemView {
       li.createSpan({ text: `“${m.text}”, line ${m.line} ` })
       const button = li.createEl("button", { text: `Link ${m.title}` })
       button.addEventListener("click", async () => {
-        if (!(await this.link(file, m))) return
+        const link = this.linkOf(m, file)
+        if (!(await this.link(file, m, link))) return
         li.remove()
         // The link is longer than the words: later mentions moved by the difference.
-        const shift = mentionLink(m).length - m.text.length
+        const shift = link.length - m.text.length
         for (const later of found.mentions) if (later.offset > m.offset) later.offset += shift
       })
     }
@@ -451,7 +452,13 @@ class SuggestionsView extends ItemView {
    * Turn a mention into a link, if the words are still where datme saw them.
    * The pane refreshes once the note is saved, when the offsets are right again.
    */
-  private async link(file: TFile, m: Mention): Promise<boolean> {
+  /** The link to put in place of a mention, as Obsidian would write it from this note. */
+  private linkOf(m: Mention, file: TFile): string {
+    const target = this.app.vault.getFileByPath(m.file)
+    return mentionLink(m, target ? this.app.metadataCache.fileToLinktext(target, file.path, true) : undefined)
+  }
+
+  private async link(file: TFile, m: Mention, link: string): Promise<boolean> {
     const moved = () => {
       new Notice("The note changed since datme read it; save it to refresh the suggestions.", 4000)
       return false
@@ -465,7 +472,7 @@ class SuggestionsView extends ItemView {
       const editor = view.editor
       const at = locate(editor.getValue(), m)
       if (at === undefined) return moved()
-      editor.replaceRange(mentionLink(m), editor.offsetToPos(at), editor.offsetToPos(at + m.text.length))
+      editor.replaceRange(link, editor.offsetToPos(at), editor.offsetToPos(at + m.text.length))
       return true
     }
     // Otherwise read and write in one step, so no other change lands in between.
@@ -474,7 +481,7 @@ class SuggestionsView extends ItemView {
       const at = locate(text, m)
       if (at === undefined) return text
       found = true
-      return text.slice(0, at) + mentionLink(m) + text.slice(at + m.text.length)
+      return text.slice(0, at) + link + text.slice(at + m.text.length)
     })
     return found || moved()
   }

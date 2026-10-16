@@ -107,6 +107,8 @@ describe("suggestions", () => {
   test("a mention becomes a link by file name, keeping the words as written", () => {
     expect(mentionLink({ file: "Notes/Slip box.md", text: "slip box" })).toBe("[[Slip box|slip box]]")
     expect(mentionLink({ file: "Notes/Slip box.md", text: "Slip box" })).toBe("[[Slip box]]")
+    // A name two notes share links by the path Obsidian gives, the words kept.
+    expect(mentionLink({ file: "b/deep/Foo.md", text: "Foo" }, "deep/Foo")).toBe("[[deep/Foo|Foo]]")
   })
 
   test("a mention is found where datme saw it, in the file or in the editor of a CRLF note", () => {

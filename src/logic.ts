@@ -130,10 +130,13 @@ export function parseSuggestions(stdout: string): Suggestions {
   return data
 }
 
-/** The wikilink replacing a mention: by file name, with the words as written when they differ from it. */
-export function mentionLink(m: Pick<Mention, "file" | "text">): string {
-  const name = m.file.split("/").pop()!.replace(/\.md$/i, "")
-  return m.text === name ? `[[${name}]]` : `[[${name}|${m.text}]]`
+/**
+ * The wikilink replacing a mention, with the words as written when they differ
+ * from its target: by file name, or by the link text Obsidian gives the file,
+ * which carries enough of its path when another note shares its name.
+ */
+export function mentionLink(m: Pick<Mention, "file" | "text">, linktext = m.file.split("/").pop()!.replace(/\.md$/i, "")): string {
+  return m.text === linktext ? `[[${linktext}]]` : `[[${linktext}|${m.text}]]`
 }
 
 /**
