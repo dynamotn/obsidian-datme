@@ -456,19 +456,27 @@ class SuggestionsView extends ItemView {
       new Notice("The note changed since datme read it; save it to refresh the suggestions.", 4000)
       return false
     }
-    const view = this.app.workspace.getActiveViewOfType(MarkdownView)
-    if (view?.file === file) {
+    // An editor holding the note, focused or not, has the latest text, unsaved typing included.
+    const view = this.app.workspace
+      .getLeavesOfType("markdown")
+      .map((leaf) => leaf.view)
+      .find((v): v is MarkdownView => v instanceof MarkdownView && v.file === file)
+    if (view) {
       const editor = view.editor
       const at = locate(editor.getValue(), m)
       if (at === undefined) return moved()
       editor.replaceRange(mentionLink(m), editor.offsetToPos(at), editor.offsetToPos(at + m.text.length))
       return true
     }
-    const text = await this.app.vault.read(file)
-    const at = locate(text, m)
-    if (at === undefined) return moved()
-    await this.app.vault.modify(file, text.slice(0, at) + mentionLink(m) + text.slice(at + m.text.length))
-    return true
+    // Otherwise read and write in one step, so no other change lands in between.
+    let found = false
+    await this.app.vault.process(file, (text) => {
+      const at = locate(text, m)
+      if (at === undefined) return text
+      found = true
+      return text.slice(0, at) + mentionLink(m) + text.slice(at + m.text.length)
+    })
+    return found || moved()
   }
 }
 
