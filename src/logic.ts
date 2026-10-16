@@ -136,6 +136,15 @@ export function mentionLink(m: Pick<Mention, "file" | "text">): string {
   return m.text === name ? `[[${name}]]` : `[[${name}|${m.text}]]`
 }
 
+/**
+ * Where a mention starts in `text`, if its words are still there. datme counts
+ * the \r of a CRLF file, which the editor drops: one character per line before.
+ */
+export function locate(text: string, m: Pick<Mention, "text" | "offset" | "line">): number | undefined {
+  for (const at of [m.offset, m.offset - (m.line - 1)]) if (at >= 0 && text.slice(at, at + m.text.length) === m.text) return at
+  return undefined
+}
+
 /** Why a note is related, in a few words. */
 export function relatedWhy(r: Related): string {
   return [

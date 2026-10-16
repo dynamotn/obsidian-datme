@@ -30,6 +30,7 @@ import {
   groupProblems,
   ago,
   isPublished,
+  locate,
   mentionLink,
   noteState,
   parseCheck,
@@ -458,15 +459,15 @@ class SuggestionsView extends ItemView {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView)
     if (view?.file === file) {
       const editor = view.editor
-      const from = editor.offsetToPos(m.offset)
-      const to = editor.offsetToPos(m.offset + m.text.length)
-      if (editor.getRange(from, to) !== m.text) return moved()
-      editor.replaceRange(mentionLink(m), from, to)
+      const at = locate(editor.getValue(), m)
+      if (at === undefined) return moved()
+      editor.replaceRange(mentionLink(m), editor.offsetToPos(at), editor.offsetToPos(at + m.text.length))
       return true
     }
     const text = await this.app.vault.read(file)
-    if (text.slice(m.offset, m.offset + m.text.length) !== m.text) return moved()
-    await this.app.vault.modify(file, text.slice(0, m.offset) + mentionLink(m) + text.slice(m.offset + m.text.length))
+    const at = locate(text, m)
+    if (at === undefined) return moved()
+    await this.app.vault.modify(file, text.slice(0, at) + mentionLink(m) + text.slice(at + m.text.length))
     return true
   }
 }

@@ -6,6 +6,7 @@ import {
   gardenCounts,
   groupProblems,
   isPublished,
+  locate,
   mentionLink,
   noteState,
   parseCheck,
@@ -106,6 +107,13 @@ describe("suggestions", () => {
   test("a mention becomes a link by file name, keeping the words as written", () => {
     expect(mentionLink({ file: "Notes/Slip box.md", text: "slip box" })).toBe("[[Slip box|slip box]]")
     expect(mentionLink({ file: "Notes/Slip box.md", text: "Slip box" })).toBe("[[Slip box]]")
+  })
+
+  test("a mention is found where datme saw it, in the file or in the editor of a CRLF note", () => {
+    const m = { text: "Dune", offset: 11, line: 3 }
+    expect(locate("a\r\nb\r\nread Dune", m)).toBe(11)
+    expect(locate("a\nb\nread Dune", m)).toBe(9)
+    expect(locate("a\nb\nread Emma", m)).toBeUndefined()
   })
 
   test("a related note says why", () => {
