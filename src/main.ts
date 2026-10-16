@@ -17,6 +17,7 @@ import {
   Platform,
   Plugin,
   PluginSettingTab,
+  requestUrl,
   Setting,
   TFile,
   type App,
@@ -323,9 +324,11 @@ export default class DatmePlugin extends Plugin {
   }
 }
 
+/** Whether the preview answers: through Obsidian, since fetch from app:// is a cross-origin call Vite refuses. */
 async function answers(url: string): Promise<boolean> {
   try {
-    return (await fetch(url, { method: "HEAD" })).ok
+    const res = await requestUrl({ url, method: "HEAD", throw: false })
+    return res.status >= 200 && res.status < 400
   } catch {
     return false
   }
