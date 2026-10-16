@@ -390,9 +390,12 @@ class SuggestionsView extends ItemView {
     await this.update()
   }
 
+  private runs = 0
+
   private async update() {
     const file = this.app.workspace.getActiveFile()
     if (!file || file.extension !== "md") return
+    const run = ++this.runs
     this.file = file
     const el = this.contentEl
     el.empty()
@@ -402,10 +405,11 @@ class SuggestionsView extends ItemView {
     try {
       found = await this.plugin.suggestions(file)
     } catch (e) {
-      return void status.setText(`datme could not suggest anything: ${(e as Error).message}`)
+      if (run === this.runs) status.setText(`datme could not suggest anything: ${(e as Error).message}`)
+      return
     }
-    // Another note was opened meanwhile.
-    if (this.file !== file) return
+    // Another note was opened, or this one saved and asked again, meanwhile: the newer answer shows.
+    if (run !== this.runs) return
     status.remove()
     this.render(found, file)
   }
