@@ -5,11 +5,6 @@
 
 export type PublishMode = "explicit" | "all"
 
-/** The `publish` mode of a vault, from the text of its datme.yaml (explicit when absent). */
-export function publishMode(datmeYaml: string | null): PublishMode {
-  return datmeYaml && /^publish:\s*["']?all["']?\s*(#.*)?$/m.test(datmeYaml) ? "all" : "explicit"
-}
-
 const flag = (v: unknown) => (v === true || v === "true" ? true : v === false || v === "false" ? false : undefined)
 
 /** Whether datme publishes a note with this frontmatter, as it decides it (drafts and schedules aside). */

@@ -12,7 +12,6 @@ import {
   parseCheck,
   parseSuggestions,
   previewUrl,
-  publishMode,
   relatedWhy,
   splitCommand,
   summary,
@@ -21,12 +20,6 @@ import {
 } from "../src/logic"
 
 describe("publishing", () => {
-  test("the vault's mode comes from datme.yaml, explicit by default", () => {
-    expect(publishMode(null)).toBe("explicit")
-    expect(publishMode("site:\n  title: x\npublish: all # everything\n")).toBe("all")
-    expect(publishMode("site:\n  publish: all\n")).toBe("explicit")
-  })
-
   test("a note is published as datme decides it", () => {
     expect(isPublished({ publish: true }, "explicit")).toBe(true)
     expect(isPublished({ publish: "true" }, "explicit")).toBe(true)
