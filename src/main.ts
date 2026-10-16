@@ -198,12 +198,16 @@ export default class DatmePlugin extends Plugin {
   async togglePublish(file = this.markdownFile()) {
     if (!file) return
     let now = false
-    await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-      const next = toggledPublish(fm, this.mode)
-      if (next === undefined) delete fm.publish
-      else fm.publish = next
-      now = isPublished(fm, this.mode)
-    })
+    try {
+      await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+        const next = toggledPublish(fm, this.mode)
+        if (next === undefined) delete fm.publish
+        else fm.publish = next
+        now = isPublished(fm, this.mode)
+      })
+    } catch (e) {
+      return void new Notice(`datme could not change ${file.basename}: its frontmatter cannot be read (${(e as Error).message}).`, 8000)
+    }
     new Notice(now ? `🌱 ${file.basename} will be published` : `🔒 ${file.basename} stays private`)
   }
 
