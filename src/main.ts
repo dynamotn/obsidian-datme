@@ -496,6 +496,8 @@ class DashboardView extends ItemView {
   refresh = debounce(() => void this.update(), 1000, true)
   /** URL paths of notes, asked of datme once per note until its frontmatter changes. */
   private urls = new Map<string, Promise<string | undefined>>()
+  /** The frontmatter each note had when its URL was asked, as JSON. */
+  private frontmatters = new Map<string, string>()
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -519,7 +521,14 @@ class DashboardView extends ItemView {
   override async onOpen() {
     this.registerEvent(this.app.metadataCache.on("resolved", () => this.refresh()))
     this.registerEvent(this.app.workspace.on("file-open", () => this.refresh()))
-    this.registerEvent(this.app.metadataCache.on("changed", (f) => this.urls.delete(f.path)))
+    // "changed" fires on every save; only new frontmatter can move a note's URL.
+    this.registerEvent(
+      this.app.metadataCache.on("changed", (f, _data, cache) => {
+        const fm = JSON.stringify(cache.frontmatter ?? null)
+        if (this.frontmatters.get(f.path) !== fm) this.urls.delete(f.path)
+        this.frontmatters.set(f.path, fm)
+      }),
+    )
     this.plugin.report ??= await this.plugin.savedReport()
     await this.update()
   }
@@ -531,7 +540,10 @@ class DashboardView extends ItemView {
     const active = this.app.workspace.getActiveFile()
     let noteUrl: string | undefined
     if (active?.extension === "md" && config.url) {
-      if (!this.urls.has(active.path)) this.urls.set(active.path, this.plugin.noteUrl(active))
+      if (!this.urls.has(active.path)) {
+        this.urls.set(active.path, this.plugin.noteUrl(active))
+        this.frontmatters.set(active.path, JSON.stringify(this.app.metadataCache.getFileCache(active)?.frontmatter ?? null))
+      }
       noteUrl = await this.urls.get(active.path)
     }
     const el = this.contentEl
