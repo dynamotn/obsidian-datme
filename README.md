@@ -4,8 +4,10 @@ A companion plugin for [datme](https://gitlab.com/dynamo-tools/datme): tend
 your digital garden without leaving Obsidian.
 
 - **🌱 Published / 🔒 Private** in the status bar shows whether datme publishes
-  the current note. Click it, or run *Publish or unpublish the current note*,
-  to flip it. The plugin follows the `publish` mode of your `datme.yaml`.
+  the current note; **📝 Draft** and **⏳ date** mark one that waits for its
+  `draft` to go or for its `publish_date`. Click it, or run *Publish or
+  unpublish the current note*, to flip it. The plugin follows the `publish`
+  mode of your `datme.yaml` (or `datme.yml`, `.datme.yaml`).
 - **Check the garden for problems** runs `datme check` and lists broken links,
   missing files and invalid frontmatter by note; click a note to open it.
 - **Show link suggestions** opens a pane beside the note you're writing. It
