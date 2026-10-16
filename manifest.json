@@ -1,7 +1,7 @@
 {
   "id": "datme",
   "name": "datme",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "minAppVersion": "1.5.7",
   "description": "Publish notes to your datme digital garden: toggle publishing, check the garden for broken links, preview the current note and get link suggestions.",
   "author": "Trần Đức Nam",
