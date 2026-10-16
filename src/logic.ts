@@ -195,21 +195,28 @@ export interface GardenCounts {
   scheduled: { path: string; date: string }[]
 }
 
+/** What datme does with a note today: publishes it, keeps it private, or holds it as a draft or until its publish_date. */
+export function noteState(fm: Record<string, unknown> | undefined, mode: PublishMode, now: Date): { state: "published" | "private" | "draft" | "scheduled"; date?: string } {
+  if (!isPublished(fm, mode)) return { state: "private" }
+  if (flag(fm?.draft) === true) return { state: "draft" }
+  const at = fm?.publish_date ?? fm?.publishDate
+  const date = at == null || at === "" ? undefined : new Date(String(at))
+  if (date && !Number.isNaN(date.getTime()) && date > now) return { state: "scheduled", date: date.toISOString().slice(0, 10) }
+  return { state: "published" }
+}
+
 /** How many notes datme publishes, keeps private, holds as drafts or schedules, as it decides it. */
 export function gardenCounts(notes: { path: string; fm?: Record<string, unknown> }[], config: GardenConfig, now: Date): GardenCounts {
   const counts: GardenCounts = { published: 0, unlisted: 0, private: 0, drafts: 0, scheduled: [] }
   for (const { path, fm } of notes) {
     if (path.split("/").some((part) => part.startsWith(".")) || config.ignore.some((ig) => path === ig || path.startsWith(ig + "/"))) continue
-    if (!isPublished(fm, config.mode)) counts.private++
-    else if (flag(fm?.draft) === true) counts.drafts++
+    const { state, date } = noteState(fm, config.mode, now)
+    if (state === "private") counts.private++
+    else if (state === "draft") counts.drafts++
+    else if (state === "scheduled") counts.scheduled.push({ path, date: date! })
     else {
-      const at = fm?.publish_date ?? fm?.publishDate
-      const date = at == null || at === "" ? undefined : new Date(String(at))
-      if (date && !Number.isNaN(date.getTime()) && date > now) counts.scheduled.push({ path, date: date.toISOString().slice(0, 10) })
-      else {
-        counts.published++
-        if (flag(fm?.unlisted) === true) counts.unlisted++
-      }
+      counts.published++
+      if (flag(fm?.unlisted) === true) counts.unlisted++
     }
   }
   counts.scheduled.sort((a, b) => a.date.localeCompare(b.date) || a.path.localeCompare(b.path))

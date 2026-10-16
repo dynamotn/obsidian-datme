@@ -7,6 +7,7 @@ import {
   groupProblems,
   isPublished,
   mentionLink,
+  noteState,
   parseCheck,
   parseSuggestions,
   previewUrl,
@@ -31,6 +32,14 @@ describe("publishing", () => {
     expect(isPublished({}, "explicit")).toBe(false)
     expect(isPublished(undefined, "all")).toBe(true)
     expect(isPublished({ publish: false }, "all")).toBe(false)
+  })
+
+  test("a draft or a note waiting for its publish_date is not published yet, as datme decides it", () => {
+    const now = new Date("2026-10-16")
+    expect(noteState({ publish: true, draft: true }, "explicit", now)).toEqual({ state: "draft" })
+    expect(noteState({ publish: true, publish_date: "2027-01-02" }, "explicit", now)).toEqual({ state: "scheduled", date: "2027-01-02" })
+    expect(noteState({ publish: true, publish_date: "2026-01-02" }, "explicit", now)).toEqual({ state: "published" })
+    expect(noteState({ draft: true }, "explicit", now)).toEqual({ state: "private" })
   })
 
   test("toggling sets the key it needs, and removes it when the default does the job", () => {

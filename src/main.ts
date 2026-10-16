@@ -31,6 +31,7 @@ import {
   ago,
   isPublished,
   mentionLink,
+  noteState,
   parseCheck,
   parseSuggestions,
   previewUrl,
@@ -180,10 +181,17 @@ export default class DatmePlugin extends Plugin {
     if (!this.statusEl) return
     const file = this.markdownFile()
     if (!file) return void this.statusEl.setText("")
-    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter
-    const published = isPublished(fm, this.mode)
-    this.statusEl.setText(published ? "🌱 Published" : "🔒 Private")
-    this.statusEl.setAttribute("aria-label", published ? "datme publishes this note; click to unpublish" : "Click to publish this note with datme")
+    const { state, date } = noteState(this.app.metadataCache.getFileCache(file)?.frontmatter, this.mode, new Date())
+    const text = { published: "🌱 Published", private: "🔒 Private", draft: "📝 Draft", scheduled: `⏳ ${date}` }
+    this.statusEl.setText(text[state])
+    this.statusEl.setAttribute(
+      "aria-label",
+      state === "private"
+        ? "Click to publish this note with datme"
+        : state === "published"
+          ? "datme publishes this note; click to unpublish"
+          : `datme publishes this note ${state === "draft" ? "once draft is removed" : `on ${date}`}; click to unpublish`,
+    )
   }
 
   async togglePublish(file = this.markdownFile()) {
