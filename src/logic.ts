@@ -89,9 +89,10 @@ export function summary(counts: CheckResult["counts"]): string {
   return parts.length ? parts.join(", ") : "no problems"
 }
 
-/** The preview address of a page path printed by `datme url`. */
+/** The preview address of a page path printed by `datme url`: its last line, after anything printed before. */
 export function previewUrl(port: number, pagePath: string): string {
-  return `http://localhost:${port}${pagePath.trim().startsWith("/") ? "" : "/"}${pagePath.trim()}`
+  const page = pagePath.trim().split("\n").pop()!.trim()
+  return `http://localhost:${port}${page.startsWith("/") ? "" : "/"}${page}`
 }
 
 export interface Related {

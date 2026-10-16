@@ -87,6 +87,7 @@ describe("running datme", () => {
     expect(summary({ error: 2, warning: 1, info: 4 })).toBe("2 errors, 1 warning")
     expect(summary({ error: 0, warning: 0, info: 4 })).toBe("no problems")
     expect(previewUrl(4321, "/Books/Dune\n")).toBe("http://localhost:4321/Books/Dune")
+    expect(previewUrl(4321, "[datme] a warning\n/Books/Dune\n")).toBe("http://localhost:4321/Books/Dune")
   })
 })
 
