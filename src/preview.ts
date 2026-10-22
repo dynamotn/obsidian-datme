@@ -128,8 +128,10 @@ export class PreviewView extends ItemView {
       this.webview?.hide()
       return this.say(`${file.basename} is not published, so the site has no page for it.`)
     }
-    if (!(await this.plugin.ensurePreview())) {
-      if (run === this.runs) this.say("The datme preview did not start. Is the command right in the settings?")
+    this.say("🌱 Waiting for the preview server…")
+    const down = await this.plugin.ensurePreview()
+    if (down) {
+      if (run === this.runs) this.say(down)
       return
     }
     if (run !== this.runs) return
@@ -165,8 +167,9 @@ export class PreviewView extends ItemView {
       // The server stopped, or restarts after a change of datme.yaml: start it again and retry.
       this.webview.addEventListener("did-fail-load", (e) => {
         if ((e as Event & { isMainFrame?: boolean }).isMainFrame === false) return
-        void this.plugin.ensurePreview().then((up) => {
-          if (up) this.webview?.reload()
+        void this.plugin.ensurePreview().then((down) => {
+          if (down) this.say(down)
+          else this.webview?.reload()
         })
       })
     }

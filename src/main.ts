@@ -600,10 +600,15 @@ export default class DatmePlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(PREVIEW_VIEW)) if (leaf.view instanceof PreviewView) leaf.view.lookChanged()
   }
 
-  /** Start `datme dev` unless it runs already, and wait until it answers. */
-  async ensurePreview(): Promise<boolean> {
+  /** Start `datme dev` unless it runs already, and wait until it answers; undefined once it does, else why not. */
+  async ensurePreview(): Promise<string | undefined> {
     const url = previewUrl(this.settings.port, "/")
-    if (await answers(url)) return true
+    const now = await answers(url)
+    if (now === "up") return undefined
+    // Something holds the port without answering, and a new server could not take it.
+    if (now === "stuck" && !this.preview) {
+      return `Something on port ${this.settings.port} does not answer: a datme dev still building, or stuck? Restart it, or set another Preview port in the settings.`
+    }
     if (!this.preview) {
       const [program, ...lead] = splitCommand(this.settings.command)
       this.preview = node().spawn(program, [...lead, "dev", this.vaultPath(), "--port", String(this.settings.port)], {
@@ -617,16 +622,19 @@ export default class DatmePlugin extends Plugin {
       })
     }
     const notice = new Notice("🌱 datme is starting the preview…", 0)
-    for (let i = 0; i < 120 && this.preview; i++) {
-      if (await answers(url)) {
+    // A minute, as datme reads the whole vault before it serves the first page.
+    const until = Date.now() + 60_000
+    while (Date.now() < until && this.preview) {
+      if ((await answers(url, 5000)) === "up") {
         notice.hide()
-        return true
+        return undefined
       }
       await new Promise((r) => setTimeout(r, 500))
     }
     notice.hide()
-    new Notice("The datme preview did not start in time.")
-    return false
+    return this.preview
+      ? "The datme preview did not start within a minute; it may still be reading the vault. Try again in a moment."
+      : "datme dev stopped before it served a page. Is the command right in the settings?"
   }
 
   async openPreview() {
@@ -642,7 +650,8 @@ export default class DatmePlugin extends Plugin {
       if (path === undefined) return void new Notice(`${file.basename} is not published. Use "Publish or unpublish the current note" first.`)
       page = path
     }
-    if (!(await this.ensurePreview())) return
+    const down = await this.ensurePreview()
+    if (down) return void new Notice(down, 10000)
     window.open(previewUrl(this.settings.port, page) + this.previewLook.query())
   }
 
@@ -652,13 +661,22 @@ export default class DatmePlugin extends Plugin {
   }
 }
 
-/** Whether the preview answers: through Obsidian, since fetch from app:// is a cross-origin call Vite refuses. */
-async function answers(url: string): Promise<boolean> {
+/**
+ * Whether the preview answers: up, down (nothing listens), or stuck (something
+ * listens but does not answer in time). Asked through Obsidian, since fetch
+ * from app:// is a cross-origin call Vite refuses; Obsidian's requests have no
+ * time limit of their own.
+ */
+async function answers(url: string, wait = 8000): Promise<"up" | "down" | "stuck"> {
+  let timer: number | undefined
+  const late = new Promise<"stuck">((resolve) => (timer = window.setTimeout(() => resolve("stuck"), wait)))
+  const asked = requestUrl({ url, method: "HEAD", throw: false })
+    .then((res) => (res.status >= 200 && res.status < 400 ? ("up" as const) : ("down" as const)))
+    .catch(() => "down" as const)
   try {
-    const res = await requestUrl({ url, method: "HEAD", throw: false })
-    return res.status >= 200 && res.status < 400
-  } catch {
-    return false
+    return await Promise.race([asked, late])
+  } finally {
+    window.clearTimeout(timer)
   }
 }
 
