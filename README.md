@@ -21,6 +21,12 @@ your digital garden without leaving Obsidian.
   of layout: cv`…). Choosing one writes it in the frontmatter; *Default*
   removes it. On the desktop, ⌘/Ctrl+Enter tries it in the preview pane
   first, without writing anything.
+- **Coming up**, on the dashboard, puts the notes scheduled in the next 30
+  days on a small calendar: click a day to open its note, or to list its
+  notes when it has several. Below it, a word on the deploy pipeline when it
+  may not build on their day: a GitHub or Cloudflare workflow of datme's
+  without a daily `schedule`, Netlify (builds on push only), or GitLab, whose
+  pipeline schedules live in its settings, out of the vault's sight.
 - **Schedule this note…** (also in the note's menu) picks a day, and a time
   if you want one, and writes it as `publish_date`; a private note is marked
   published too. A time keeps your computer's time zone (`2026-11-01T09:30:00+07:00`),

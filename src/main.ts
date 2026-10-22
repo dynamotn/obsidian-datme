@@ -62,6 +62,7 @@ import { LookModal, type LookKey } from "./pick"
 import { markRenderedLinks, privateLinkMarker } from "./private-links"
 import { ScheduleModal, unschedule } from "./schedule"
 import { renderTending, tendingStatus } from "./tending"
+import { renderCalendar } from "./calendar"
 import { RESPONSES_VIEW, ResponsesView, ResponseWatcher } from "./responses"
 
 const SUGGESTIONS_VIEW = "datme-suggestions"
@@ -857,6 +858,8 @@ class DashboardView extends ItemView {
       const days = li.createEl("ul")
       for (const s of counts.scheduled) this.noteLink(days.createEl("li", { text: `${s.date} ` }), s.path)
     }
+    // Drawn in its place, once the pipeline files are read.
+    void renderCalendar(el.createDiv(), counts.scheduled, this.app.vault.adapter, (path) => void this.app.workspace.openLinkText(path, "", false))
 
     el.createEl("h4", { text: "Last check" })
     if (!report) el.createEl("p", { text: Platform.isDesktopApp ? "Not checked yet." : "No saved report yet.", cls: "u-muted" })

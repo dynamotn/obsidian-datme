@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import {
   ago,
+  pipelineSchedule,
+  scheduleCalendar,
   giscusTerms,
   safeUrl,
   giscusTerm,
@@ -674,5 +676,54 @@ describe("finding a page's giscus discussion", () => {
     expect(giscusTerms("url", "https://notes.example/cv")).toEqual(["https://notes.example/cv", "https://notes.example/cv/"])
     expect(giscusTerms("og:title", "https://notes.example/cv", { ogTitle: "CV" })).toEqual(["CV"])
     expect(giscusTerms("title", "https://notes.example/cv")).toEqual([])
+  })
+})
+
+describe("scheduling calendar", () => {
+  test("the next days from today by the computer's clock, Monday as 0, with the notes due each day", () => {
+    const days = scheduleCalendar(
+      [
+        { path: "a.md", date: "2026-10-23" },
+        { path: "b.md", date: "2026-10-30" },
+        { path: "c.md", date: "2026-10-30" },
+        { path: "late.md", date: "2027-01-01" },
+      ],
+      // 22:00 on Friday 23 October, wherever the tests run.
+      new Date(2026, 9, 23, 22, 0),
+      30,
+    )
+    expect(days).toHaveLength(30)
+    expect(days[0]).toEqual({ date: "2026-10-23", weekday: 4, notes: ["a.md"] })
+    expect(days[7].notes).toEqual(["b.md", "c.md"])
+    expect(days[29].date).toBe("2026-11-21")
+    expect(days.flatMap((d) => d.notes)).not.toContain("late.md")
+  })
+})
+
+describe("deploy pipeline schedule", () => {
+  const wf = (cron?: string) => ({
+    path: ".github/workflows/datme.yml",
+    text: `name: datme\non:\n  push:\n    branches: [main]\n${cron ? `  schedule:\n    - cron: "${cron}"\n` : ""}jobs:\n  build:\n    steps:\n      - run: bunx @dynamotn/datme build\n`,
+  })
+
+  test("a GitHub or Cloudflare workflow with a daily cron builds every day", () => {
+    expect(pipelineSchedule([wf("17 5 * * *")])).toMatchObject({ kind: "daily", file: ".github/workflows/datme.yml" })
+    expect(pipelineSchedule([wf("0 */6 * * *")]).kind).toBe("daily")
+    expect(pipelineSchedule([wf("0 5 * * 1")])).toMatchObject({ kind: "rarer" })
+    expect(pipelineSchedule([wf()])).toMatchObject({ kind: "none" })
+  })
+
+  test("workflows that are not datme's are left alone", () => {
+    expect(pipelineSchedule([{ path: ".github/workflows/lint.yml", text: "on:\n  schedule:\n    - cron: '0 0 * * *'\n" }]).kind).toBe("unknown")
+  })
+
+  test("GitLab keeps its schedules in its settings; Netlify builds on push only", () => {
+    expect(pipelineSchedule([{ path: ".gitlab-ci.yml", text: 'rules:\n  - if: $CI_PIPELINE_SOURCE == "schedule"\n' }]).kind).toBe("unknown")
+    // A branch rule lets a schedule on that branch run the job.
+    expect(pipelineSchedule([{ path: ".gitlab-ci.yml", text: 'pages:\n  rules:\n    - if: $CI_COMMIT_BRANCH == "main"\n' }]).kind).toBe("unknown")
+    expect(pipelineSchedule([{ path: ".gitlab-ci.yml", text: 'pages:\n  rules:\n    - if: $CI_PIPELINE_SOURCE == "push"\n' }]).kind).toBe("none")
+    expect(pipelineSchedule([{ path: "netlify.toml", text: "[build]\n" }]).kind).toBe("none")
+    expect(pipelineSchedule([]).kind).toBe("unknown")
+    expect(pipelineSchedule([]).file).toBeUndefined()
   })
 })

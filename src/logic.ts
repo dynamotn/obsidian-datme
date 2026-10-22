@@ -1093,3 +1093,78 @@ export function responseLine(r: Response, title: string): string {
   const what = { like: "liked", repost: "reposted", reply: "replied to", mention: "mentioned", comment: "commented on" }[r.kind]
   return `${r.author.name} ${what} ${title}${r.via ? ` (via ${r.via})` : ""}`
 }
+
+/** One day of the scheduling calendar: its date as the status bar writes it (UTC), and the notes due then. */
+export interface CalendarDay {
+  date: string
+  /** Day of the week, 0 for Monday. */
+  weekday: number
+  notes: string[]
+}
+
+/**
+ * The next `days` days from `now`, today first by the computer's own clock,
+ * with the notes due each day by the date the status bar shows for them.
+ */
+export function scheduleCalendar(scheduled: { path: string; date: string }[], now: Date, days = 30): CalendarDay[] {
+  const start = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+  const out: CalendarDay[] = []
+  for (let i = 0; i < days; i++) {
+    const d = new Date(start + i * 86_400_000)
+    out.push({ date: d.toISOString().slice(0, 10), weekday: (d.getUTCDay() + 6) % 7, notes: [] })
+  }
+  const byDate = new Map(out.map((d) => [d.date, d]))
+  for (const s of scheduled) byDate.get(s.date)?.notes.push(s.path)
+  return out
+}
+
+export interface PipelineSchedule {
+  /** daily: notes appear on their day; unknown: the host keeps the schedule, out of sight; none: they wait for the next push. */
+  kind: "daily" | "rarer" | "unknown" | "none"
+  /** The file that says so. */
+  file?: string
+  /** What to do, or what is known, in a sentence. */
+  advice: string
+}
+
+/** Whether a cron line runs every day: any minute and hour, every day of every month, every day of the week. */
+function cronDaily(cron: string): boolean {
+  const f = cron.trim().split(/\s+/)
+  if (f.length !== 5) return false
+  const every = (v: string) => v === "*" || v === "*/1" || v === "?"
+  return every(f[2]) && every(f[3]) && (every(f[4]) || /^(0-6|1-7|0-7|\*)$/.test(f[4]))
+}
+
+/**
+ * Whether the deploy pipeline in the vault builds every day, as scheduled
+ * notes need to appear on their day: GitHub and Cloudflare workflows with a
+ * daily cron, a GitLab pipeline ready for a schedule its settings keep, and
+ * Netlify, which builds on push only.
+ */
+export function pipelineSchedule(files: { path: string; text: string }[]): PipelineSchedule {
+  const workflows = files.filter((f) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(f.path) && /datme/i.test(f.text))
+  for (const w of workflows) {
+    const crons = [...w.text.matchAll(/^\s*-?\s*cron:\s*["']?([^"'\n#]+)["']?/gm)].map((m) => m[1].trim())
+    if (crons.some(cronDaily)) return { kind: "daily", file: w.path, advice: "The workflow builds every day, so notes appear on their day." }
+    if (crons.length) return { kind: "rarer", file: w.path, advice: `The workflow's schedule (${crons.join(", ")}) is not daily: a note may appear days after its date.` }
+  }
+  if (workflows.length) {
+    return { kind: "none", file: workflows[0].path, advice: `${workflows[0].path} builds on push only: add a daily schedule (on: schedule: - cron) so notes appear on their day.` }
+  }
+  // A scheduled pipeline on the branch runs every job whose rules let it, a branch rule included:
+  // only rules that ask for pushes alone keep it out.
+  const gitlab = files.find((f) => f.path === ".gitlab-ci.yml")
+  if (gitlab) {
+    const pushOnly = /CI_PIPELINE_SOURCE\s*==\s*["']push["']/.test(gitlab.text) && !/schedule/.test(gitlab.text.replace(/^\s*#.*$/gm, ""))
+    return pushOnly
+      ? { kind: "none", file: gitlab.path, advice: 'The GitLab pipeline runs on pushes only: let it run for $CI_PIPELINE_SOURCE == "schedule" too, and add a daily schedule under Build → Pipeline schedules.' }
+      : { kind: "unknown", file: gitlab.path, advice: "GitLab keeps pipeline schedules in its settings: check Build → Pipeline schedules has a daily one." }
+  }
+  const netlify = files.find((f) => f.path === "netlify.toml")
+  if (netlify) return { kind: "none", file: netlify.path, advice: "Netlify builds on push only: call a build hook once a day so notes appear on their day." }
+  return { kind: "unknown", advice: "No deploy pipeline in the vault: whatever builds the site needs to run every day for notes to appear on their day." }
+}
+
+/** The files pipelineSchedule reads, at the root of the vault. */
+export const PIPELINE_FILES = [".gitlab-ci.yml", "netlify.toml"]
+export const WORKFLOW_DIR = ".github/workflows"

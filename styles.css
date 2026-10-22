@@ -141,3 +141,58 @@
 .datme-responses-error {
   color: var(--text-warning);
 }
+
+/* Coming up: the scheduled notes of the next days. */
+.datme-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  font-size: var(--font-ui-smaller);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.datme-calendar-weekday {
+  color: var(--text-faint);
+}
+
+.datme-calendar-day {
+  padding: 2px 0;
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  min-height: 2.4em;
+}
+
+.datme-calendar-day.is-today {
+  outline: 1px solid var(--interactive-accent);
+}
+
+.datme-calendar-day.has-notes {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  cursor: pointer;
+}
+
+.datme-calendar-dots {
+  color: var(--interactive-accent);
+  line-height: 0.8;
+}
+
+.datme-calendar-warning {
+  color: var(--text-warning);
+  font-size: var(--font-ui-smaller);
+}
+
+.datme-calendar-note {
+  font-size: var(--font-ui-smaller);
+}
+
+.datme-calendar-day.is-picked {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.datme-calendar-picked {
+  font-size: var(--font-ui-smaller);
+  margin-block-start: var(--size-4-1);
+}
