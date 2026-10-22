@@ -20,6 +20,7 @@ import {
   requestUrl,
   Setting,
   TFile,
+  TFolder,
   type App,
   type WorkspaceLeaf,
 } from "obsidian"
@@ -45,6 +46,9 @@ import {
   type Mention,
   type Suggestions,
 } from "./logic"
+import { hasWebview, PREVIEW_VIEW, PreviewView } from "./preview"
+import { PreviewLook } from "./look"
+import { ExplorerBadges } from "./explorer"
 
 const SUGGESTIONS_VIEW = "datme-suggestions"
 const DASHBOARD_VIEW = "datme-dashboard"
@@ -71,9 +75,11 @@ interface Settings {
   showNotices: boolean
   /** Save each check report in the vault, for the plugin on a phone. */
   saveReport: boolean
+  /** Badges beside notes and folders in the file explorer. */
+  explorerBadges: boolean
 }
 
-const DEFAULTS: Settings = { command: "bunx @dynamotn/datme", port: 4321, showNotices: false, saveReport: true }
+const DEFAULTS: Settings = { command: "bunx @dynamotn/datme", port: 4321, showNotices: false, saveReport: true, explorerBadges: true }
 
 export default class DatmePlugin extends Plugin {
   settings: Settings = { ...DEFAULTS }
@@ -82,6 +88,9 @@ export default class DatmePlugin extends Plugin {
   config: GardenConfig = gardenConfig(null)
   /** The last check report, run here or saved by another device or CI; when it was made. */
   report: { result: CheckResult; at?: number } | undefined
+  /** How the preview pane shows pages: light or dark, phone width, style and layout. */
+  previewLook = new PreviewLook()
+  explorer = new ExplorerBadges(this)
 
   private get mode() {
     return this.config.mode
@@ -92,15 +101,22 @@ export default class DatmePlugin extends Plugin {
     await this.readMode()
 
     const desktop = Platform.isDesktopApp
-    if (desktop) this.addRibbonIcon("sprout", "datme: preview this note", () => void this.openPreview())
+    if (desktop) this.addRibbonIcon("sprout", "datme: preview this note", () => void this.openPreviewPane())
     this.statusEl = this.addStatusBarItem()
     this.statusEl.addClass("mod-clickable")
     this.statusEl.addEventListener("click", () => void this.togglePublish())
     this.registerEvent(this.app.workspace.on("file-open", () => this.updateStatus()))
     this.registerEvent(this.app.metadataCache.on("changed", () => this.updateStatus()))
+    // The explorer's badges follow the notes, and the explorer when it draws new rows.
+    this.registerEvent(this.app.metadataCache.on("changed", () => this.explorer.refresh()))
+    this.registerEvent(this.app.metadataCache.on("resolved", () => this.explorer.refresh()))
+    this.registerEvent(this.app.vault.on("rename", () => this.explorer.refresh()))
+    this.registerEvent(this.app.vault.on("delete", () => this.explorer.refresh()))
+    this.registerEvent(this.app.workspace.on("layout-change", () => this.explorer.refresh()))
+    this.app.workspace.onLayoutReady(() => this.explorer.refresh())
     // The config is read again when it is written, created, deleted or renamed.
     const reread = (path: string, oldPath?: string) => {
-      if (CONFIG_FILES.includes(path) || (oldPath && CONFIG_FILES.includes(oldPath))) void this.readMode().then(() => this.updateStatus())
+      if (CONFIG_FILES.includes(path) || (oldPath && CONFIG_FILES.includes(oldPath))) void this.readMode().then(() => this.configChanged())
     }
     this.registerEvent(this.app.vault.on("modify", (f) => reread(f.path)))
     this.registerEvent(this.app.vault.on("create", (f) => reread(f.path)))
@@ -109,6 +125,7 @@ export default class DatmePlugin extends Plugin {
     // Phones have no status bar: the note's menu says and flips its state there too.
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file) => {
+        if (file instanceof TFolder) return this.explorer.addMenuItems(menu, [file])
         if (!(file instanceof TFile) || file.extension !== "md") return
         const published = isPublished(this.app.metadataCache.getFileCache(file)?.frontmatter, this.mode)
         menu.addItem((item) =>
@@ -119,6 +136,7 @@ export default class DatmePlugin extends Plugin {
         )
       }),
     )
+    this.registerEvent(this.app.workspace.on("files-menu", (menu, files) => this.explorer.addMenuItems(menu, files)))
 
     this.addCommand({
       id: "toggle-publish",
@@ -135,7 +153,9 @@ export default class DatmePlugin extends Plugin {
     this.registerView(DASHBOARD_VIEW, (leaf) => new DashboardView(leaf, this))
     this.addCommand({ id: "dashboard", name: "Open the garden dashboard", callback: () => void this.openView(DASHBOARD_VIEW) })
     if (desktop) {
-      this.addCommand({ id: "preview", name: "Preview the current note", callback: () => void this.openPreview() })
+      this.registerView(PREVIEW_VIEW, (leaf) => new PreviewView(leaf, this))
+      this.addCommand({ id: "preview", name: "Preview the current note", callback: () => void this.openPreviewPane() })
+      this.addCommand({ id: "preview-browser", name: "Preview the current note in the browser", callback: () => void this.openPreview() })
       this.addCommand({ id: "stop-preview", name: "Stop the preview server", callback: () => this.stopPreview() })
       this.registerView(SUGGESTIONS_VIEW, (leaf) => new SuggestionsView(leaf, this))
       this.addCommand({ id: "suggestions", name: "Show link suggestions", callback: () => void this.openView(SUGGESTIONS_VIEW) })
@@ -146,6 +166,13 @@ export default class DatmePlugin extends Plugin {
 
   override onunload() {
     this.stopPreview()
+    for (const el of Array.from(document.querySelectorAll(".datme-badge"))) el.remove()
+  }
+
+  /** What follows datme.yaml once it was read again. */
+  private configChanged() {
+    this.updateStatus()
+    this.explorer.refresh()
   }
 
   async saveSettings() {
@@ -302,8 +329,25 @@ export default class DatmePlugin extends Plugin {
     new ProblemsModal(this.app, saved.result, this.settings.showNotices, saved.at ? ago(saved.at, Date.now()) : undefined).open()
   }
 
+  /** The page path of a note on the preview server, from `datme url`; undefined when datme does not publish it. */
+  async pagePath(file: TFile): Promise<string | undefined> {
+    const out = await this.run(["url", file.path, this.vaultPath()]).catch(() => undefined)
+    return out && out.code === 0 ? out.stdout.trim().split("\n").pop()?.trim() || "/" : undefined
+  }
+
+  /** The preview pane, beside the note; the browser where Obsidian cannot embed pages. */
+  async openPreviewPane() {
+    if (!hasWebview()) return this.openPreview()
+    let leaf = this.app.workspace.getLeavesOfType(PREVIEW_VIEW)[0]
+    if (!leaf) {
+      leaf = this.app.workspace.getLeaf("split", "vertical")
+      await leaf.setViewState({ type: PREVIEW_VIEW, active: false })
+    }
+    void this.app.workspace.revealLeaf(leaf)
+  }
+
   /** Start `datme dev` unless it runs already, and wait until it answers. */
-  private async ensurePreview(): Promise<boolean> {
+  async ensurePreview(): Promise<boolean> {
     const url = previewUrl(this.settings.port, "/")
     if (await answers(url)) return true
     if (!this.preview) {
@@ -667,6 +711,16 @@ class DatmeSettings extends PluginSettingTab {
         t.setValue(this.plugin.settings.saveReport).onChange(async (v) => {
           this.plugin.settings.saveReport = v
           await this.plugin.saveSettings()
+        }),
+      )
+    new Setting(containerEl)
+      .setName("Badges in the file explorer")
+      .setDesc("Show beside each note whether datme publishes it (🌱 published, 🔒 private, 📝 draft, ⏳ scheduled, 👁 unlisted), and beside each folder how many of its notes it publishes.")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.explorerBadges).onChange(async (v) => {
+          this.plugin.settings.explorerBadges = v
+          await this.plugin.saveSettings()
+          this.plugin.explorer.render()
         }),
       )
     new Setting(containerEl)

@@ -22,8 +22,19 @@ your digital garden without leaving Obsidian.
   last check, and how old it is; and links to the site (`site.url`) and to the
   current note on it.
 - **Preview the current note** (also the 🌱 ribbon button) starts `datme dev`
-  if it isn't running, then opens the note as the site will show it. *Stop the
-  preview server* ends it, as does closing Obsidian.
+  if it isn't running, then shows the note's page on `localhost` in a pane
+  beside the editor. The pane follows the note you open, reloads when the vault
+  changes, and scrolls to the heading at the top of the editor. Its toolbar
+  switches between light and dark, narrows the page to a phone's width, and
+  tries another style, layout or frame on the note (the 🎨 bar's `?style=`,
+  `?layout=` and `?chrome=`) without writing anything. *Preview the current
+  note in the browser* opens the page there instead. *Stop the preview server*
+  ends `datme dev`, as does closing Obsidian.
+- **Badges in the file explorer** say what datme does with each note: 🌱
+  published, 🔒 private, 📝 draft, ⏳ scheduled, 👁 unlisted; each folder shows
+  how many of its notes are published (`3/5`). Right-click a folder, or several
+  selected files, for *datme: publish all* or *datme: keep all private*; the
+  notes that would change are listed before anything is written.
 
 Checking, previewing and suggesting run the datme command, so they need the
 desktop app and [Bun](https://bun.sh) or Node 23.6+.
@@ -34,6 +45,7 @@ The plugin also runs in Obsidian on mobile, with what needs no command:
 
 - whether the current note is published, and flipping it, from the note's menu
   (*datme: publish* or *datme: keep private*) or the command palette;
+- the badges in the file explorer, and publishing a folder at once;
 - the garden dashboard, without the link to the current note;
 - the last check report. Each check on a computer saves it in
   `.datme/check.json` (the *Save the check report* setting), so it reaches
@@ -51,8 +63,8 @@ The plugin also runs in Obsidian on mobile, with what needs no command:
 Until it's in the community directory:
 
 1. Build it: `bun install && bun run build` in a clone of this repository (or download
-   `main.js` and `manifest.json` from a release).
-2. Copy `main.js` and `manifest.json` into
+   `main.js`, `manifest.json` and `styles.css` from a release).
+2. Copy `main.js`, `manifest.json` and `styles.css` into
    `<your vault>/.obsidian/plugins/datme/`.
 3. Enable **datme** under Settings → Community plugins.
 
@@ -67,6 +79,7 @@ instead.
   `PATH`, so the plugin also looks in `~/.bun/bin`, `/opt/homebrew/bin` and
   `/usr/local/bin`.
 - **Preview port**: 4321 by default.
+- **Badges in the file explorer**: on by default.
 - **Show notices**: also list links to unpublished notes in the check report.
 
 ## Development

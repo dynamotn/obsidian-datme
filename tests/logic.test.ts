@@ -1,10 +1,17 @@
 import { describe, expect, test } from "bun:test"
 import {
   ago,
+  badgeOf,
+  folderCounts,
+  headingAt,
+  headingText,
+  publishFor,
+  scrollScript,
   augmentedPath,
   gardenConfig,
   gardenCounts,
   groupProblems,
+  isIgnored,
   isPublished,
   locate,
   mentionLink,
@@ -141,12 +148,47 @@ describe("on a phone", () => {
 
 describe("garden dashboard", () => {
   test("reads the mode, URL and ignored folders of datme.yaml", () => {
-    expect(gardenConfig({ publish: "all", site: { url: "https://notes.example/" }, ignore: ["/Archive/"] })).toEqual({
+    expect(gardenConfig({ publish: "all", site: { url: "https://notes.example/" }, ignore: ["/Archive/"] })).toMatchObject({
       mode: "all",
       url: "https://notes.example",
-      ignore: [".obsidian", ".trash", "node_modules", "private", "templates", "Archive"],
+      ignore: [".git", ".obsidian", ".trash", "node_modules", "private", "templates", "Archive"],
     })
-    expect(gardenConfig(null)).toMatchObject({ mode: "explicit", url: undefined })
+    expect(gardenConfig(null)).toEqual({
+      mode: "explicit",
+      url: undefined,
+      ignore: [".git", ".obsidian", ".trash", "node_modules", "private", "templates"],
+      languages: ["en-US"],
+      stages: [],
+      privateLinks: "text",
+      preset: undefined,
+    })
+  })
+
+  test("reads languages, stages, privateLinks and the theme pack of datme.yaml", () => {
+    const c = gardenConfig({
+      languages: ["vi-VN", "en-US", "x"],
+      stages: { "01_Seeds": "fleeting", ideas: "Ideas", "02_Trees": { icon: "🌳", label: "Trees" }, "03_Rocks": null },
+      privateLinks: "hide",
+      theme: { preset: "Themes/mine" },
+    })
+    expect(c.languages).toEqual(["vi-VN", "en-US"])
+    expect(c.stages).toEqual([
+      { name: "01_Seeds", label: "🌱 Fleeting" },
+      { name: "ideas", label: "Ideas" },
+      { name: "02_Trees", label: "Trees" },
+      { name: "03_Rocks", label: "Rocks" },
+    ])
+    expect(c.privateLinks).toBe("hide")
+    expect(c.preset).toBe("Themes/mine")
+    expect(gardenConfig({ privateLinks: "nope" }).privateLinks).toBe("text")
+  })
+
+  test("ignored folders match without regard to case, as datme does", () => {
+    const c = gardenConfig({ ignore: ["Archive"] })
+    expect(isIgnored("archive/old.md", c)).toBe(true)
+    expect(isIgnored("Private/x.md", c)).toBe(true)
+    expect(isIgnored(".hidden/x.md", c)).toBe(true)
+    expect(isIgnored("Archived.md", c)).toBe(false)
   })
 
   test("counts notes as datme decides: published, unlisted, private, drafts and scheduled", () => {
@@ -167,5 +209,67 @@ describe("garden dashboard", () => {
       now,
     )
     expect(counts).toEqual({ published: 3, unlisted: 1, private: 2, drafts: 1, scheduled: [{ path: "d.md", date: "2026-12-01" }] })
+  })
+})
+
+describe("preview pane", () => {
+  const headings = [
+    { heading: "Intro", level: 1, line: 3 },
+    { heading: "Details", level: 2, line: 10 },
+  ]
+
+  test("the heading at a line is the last one that starts at or before it", () => {
+    expect(headingAt(headings, 0)).toBeUndefined()
+    expect(headingAt(headings, 3)).toEqual({ heading: "Intro", level: 1 })
+    expect(headingAt(headings, 42)).toEqual({ heading: "Details", level: 2 })
+  })
+
+  test("a heading's words are what the page shows: links by their text, no emphasis marks", () => {
+    expect(headingText("About [[Notes/Gardens|my garden]]")).toBe("About my garden")
+    expect(headingText("See [[Notes/Gardens]]")).toBe("See Gardens")
+    expect(headingText("A **bold** `code` [link](https://x.y)")).toBe("A bold code link")
+  })
+
+  test("the scroll script looks for the heading by its words, safely quoted", () => {
+    const script = scrollScript('Say "hi" </script>')
+    expect(script).toContain(JSON.stringify('Say "hi" </script>'))
+    expect(scrollScript(undefined)).toContain("const want = null")
+  })
+})
+
+describe("file explorer", () => {
+  const now = new Date("2026-10-22")
+
+  test("a note's badge is its state, and unlisted for a published note kept off lists", () => {
+    expect(badgeOf({ publish: true }, "explicit", now)).toBe("published")
+    expect(badgeOf({ publish: true, unlisted: true }, "explicit", now)).toBe("unlisted")
+    expect(badgeOf({}, "explicit", now)).toBe("private")
+    expect(badgeOf({ publish: true, draft: "true" }, "explicit", now)).toBe("draft")
+    expect(badgeOf({ publish: true, publish_date: "2027-01-01" }, "explicit", now)).toBe("scheduled")
+  })
+
+  test("each folder counts the published notes under it, ignored ones left out", () => {
+    const counts = folderCounts(
+      [
+        { path: "A/one.md", fm: { publish: true } },
+        { path: "A/B/two.md", fm: { publish: true } },
+        { path: "A/B/three.md", fm: {} },
+        { path: "templates/t.md", fm: { publish: true } },
+        { path: "top.md", fm: { publish: true } },
+      ],
+      gardenConfig(null),
+      now,
+    )
+    expect(counts.get("A")).toEqual({ published: 2, total: 3 })
+    expect(counts.get("A/B")).toEqual({ published: 1, total: 2 })
+    expect(counts.has("templates")).toBe(false)
+  })
+
+  test("publishing many notes changes only those that need it, with the key the mode wants", () => {
+    expect(publishFor({ publish: true }, "explicit", true)).toBe("keep")
+    expect(publishFor({}, "explicit", true)).toBe(true)
+    expect(publishFor({ publish: true }, "explicit", false)).toBeUndefined()
+    expect(publishFor({}, "all", false)).toBe(false)
+    expect(publishFor({ publish: false }, "all", true)).toBeUndefined()
   })
 })

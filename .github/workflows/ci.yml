@@ -23,6 +23,7 @@ jobs:
           path: |
             main.js
             manifest.json
+            styles.css
 
   # A tag named after the version in manifest.json (Obsidian and BRAT expect
   # `1.2.3`, without a `v`) publishes a GitHub release with the plugin files.
@@ -41,6 +42,6 @@ jobs:
           test "$(jq -r .version manifest.json)" = "$GITHUB_REF_NAME"
           test "$(jq -r .version package.json)" = "$GITHUB_REF_NAME"
       - run: bun run build
-      - run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes main.js manifest.json
+      - run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes main.js manifest.json styles.css
         env:
           GH_TOKEN: ${{ github.token }}

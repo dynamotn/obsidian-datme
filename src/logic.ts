@@ -170,6 +170,8 @@ export function ago(then: number, now: number): string {
   return "just now"
 }
 
+export type PrivateLinks = "text" | "placeholder" | "hide"
+
 /** What the plugin needs of datme.yaml, parsed by Obsidian's YAML reader. */
 export interface GardenConfig {
   mode: PublishMode
@@ -177,18 +179,41 @@ export interface GardenConfig {
   url?: string
   /** Folders datme never reads, its own ones included. */
   ignore: string[]
+  /** The garden's languages, the default first. */
+  languages: string[]
+  /** The stages of `stages:`, by key, with their label. */
+  stages: { name: string; label: string }[]
+  /** What the site shows for a link to a note it does not publish. */
+  privateLinks: PrivateLinks
+  /** A theme pack (`theme.preset`), which may add styles of its own. */
+  preset?: string
 }
 
-const DEFAULT_IGNORE = [".obsidian", ".trash", "node_modules", "private", "templates"]
+const DEFAULT_IGNORE = [".git", ".obsidian", ".trash", "node_modules", "private", "templates"]
+
+const STAGE_PRESETS: Record<string, string> = { fleeting: "🌱 Fleeting", literature: "📖 Literature", permanent: "🌳 Permanent" }
+
+const record = (v: unknown) => (v && typeof v === "object" && !Array.isArray(v) ? v : {}) as Record<string, unknown>
 
 export function gardenConfig(parsed: unknown): GardenConfig {
-  const c = (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>
-  const site = (c.site && typeof c.site === "object" ? c.site : {}) as Record<string, unknown>
+  const c = record(parsed)
+  const site = record(c.site)
+  const theme = record(c.theme)
   const ignore = Array.isArray(c.ignore) ? c.ignore.map((p) => String(p).replace(/^\/+|\/+$/g, "")) : []
+  const languages = Array.isArray(c.languages) ? c.languages.filter((l): l is string => typeof l === "string" && l.length >= 2) : []
+  const stages = Object.entries(record(c.stages)).map(([name, v]) => {
+    const preset = typeof v === "string" ? STAGE_PRESETS[v.toLowerCase()] : undefined
+    const label = preset ?? (typeof v === "string" ? v : typeof record(v).label === "string" ? String(record(v).label) : name.replace(/^[\d._-]+/, ""))
+    return { name, label }
+  })
   return {
     mode: c.publish === "all" ? "all" : "explicit",
     url: typeof site.url === "string" && site.url ? site.url.replace(/\/+$/, "") : undefined,
     ignore: [...DEFAULT_IGNORE, ...ignore],
+    languages: languages.length ? languages : ["en-US"],
+    stages,
+    privateLinks: c.privateLinks === "placeholder" || c.privateLinks === "hide" ? c.privateLinks : "text",
+    preset: typeof theme.preset === "string" && theme.preset ? theme.preset : undefined,
   }
 }
 
@@ -213,11 +238,23 @@ export function noteState(fm: Record<string, unknown> | undefined, mode: Publish
   return { state: "published" }
 }
 
+/** Whether datme never reads a file: in a hidden folder, or one the config ignores. */
+export function isIgnored(path: string, config: Pick<GardenConfig, "ignore">): boolean {
+  const lower = path.toLowerCase()
+  return (
+    path.split("/").some((part) => part.startsWith(".")) ||
+    config.ignore.some((ig) => {
+      const i = ig.toLowerCase()
+      return lower === i || lower.startsWith(i + "/")
+    })
+  )
+}
+
 /** How many notes datme publishes, keeps private, holds as drafts or schedules, as it decides it. */
 export function gardenCounts(notes: { path: string; fm?: Record<string, unknown> }[], config: GardenConfig, now: Date): GardenCounts {
   const counts: GardenCounts = { published: 0, unlisted: 0, private: 0, drafts: 0, scheduled: [] }
   for (const { path, fm } of notes) {
-    if (path.split("/").some((part) => part.startsWith(".")) || config.ignore.some((ig) => path === ig || path.startsWith(ig + "/"))) continue
+    if (isIgnored(path, config)) continue
     const { state, date } = noteState(fm, config.mode, now)
     if (state === "private") counts.private++
     else if (state === "draft") counts.drafts++
@@ -229,4 +266,238 @@ export function gardenCounts(notes: { path: string; fm?: Record<string, unknown>
   }
   counts.scheduled.sort((a, b) => a.date.localeCompare(b.date) || a.path.localeCompare(b.path))
   return counts
+}
+
+/** The heading a reader is under at a line of the note: the last one starting at or before it. */
+export function headingAt(headings: { heading: string; level: number; line: number }[], line: number): { heading: string; level: number } | undefined {
+  let found: { heading: string; level: number } | undefined
+  for (const h of headings) if (h.line <= line) found = { heading: h.heading, level: h.level }
+  return found
+}
+
+/** The words of a heading as the page shows them: links by their text, without emphasis marks. */
+export function headingText(heading: string): string {
+  return heading
+    .replace(/!?\[\[([^\]|]*)\|([^\]]*)\]\]/g, "$2")
+    .replace(/!?\[\[([^\]]*)\]\]/g, (_, target: string) => target.split("#").pop()!.split("/").pop()!)
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/[*_~=`]/g, "")
+    .trim()
+}
+
+export type Badge = "published" | "private" | "draft" | "scheduled" | "unlisted"
+
+/** The badge of a note in the file explorer: its state, and unlisted for a published note kept off the lists. */
+export function badgeOf(fm: Record<string, unknown> | undefined, mode: PublishMode, now: Date): Badge {
+  const { state } = noteState(fm, mode, now)
+  return state === "published" && flag(fm?.unlisted) === true ? "unlisted" : state
+}
+
+export const BADGE_ICONS: Record<Badge, string> = { published: "🌱", private: "🔒", draft: "📝", scheduled: "⏳", unlisted: "👁" }
+
+/** For each folder of the vault, how many of the notes datme reads under it it publishes now. */
+export function folderCounts(notes: { path: string; fm?: Record<string, unknown> }[], config: GardenConfig, now: Date): Map<string, { published: number; total: number }> {
+  const out = new Map<string, { published: number; total: number }>()
+  for (const { path, fm } of notes) {
+    if (isIgnored(path, config)) continue
+    const state = noteState(fm, config.mode, now).state
+    const parts = path.split("/").slice(0, -1)
+    for (let i = 1; i <= parts.length; i++) {
+      const folder = parts.slice(0, i).join("/")
+      const c = out.get(folder) ?? { published: 0, total: 0 }
+      c.total++
+      if (state === "published") c.published++
+      out.set(folder, c)
+    }
+  }
+  return out
+}
+
+/**
+ * The `publish` value that makes datme publish a note (or keep it private), or
+ * "keep" when it already does. undefined means removing the key, when the
+ * publish mode does that by default.
+ */
+export function publishFor(fm: Record<string, unknown> | undefined, mode: PublishMode, publish: boolean): boolean | undefined | "keep" {
+  return isPublished(fm, mode) === publish ? "keep" : toggledPublish(fm, mode)
+}
+
+export interface Choice {
+  value: string
+  description: string
+}
+
+/** The styles datme has, as src/site.config.ts lists them, each in a line of docs/themes.md. */
+export const STYLES: Choice[] = [
+  { value: "notebook", description: "Index cards on dotted paper; the default" },
+  { value: "classic", description: "A quiet serif blog" },
+  { value: "garden", description: "Notes as plants in a bed, sized by how grown they are" },
+  { value: "resume", description: "A single page, a CV" },
+  { value: "darkroom", description: "A gallery of pictures; opens dark" },
+  { value: "terminal", description: "A monospace TTY in green phosphor; opens dark" },
+  { value: "blueprint", description: "Grid paper, mono lettering and drawing sheets; opens dark" },
+  { value: "wiki", description: "A dense reference page with an infobox of the note's properties" },
+  { value: "broadsheet", description: "A newspaper: the home a front page, each top folder a section" },
+  { value: "herbarium", description: "Each note a pressed specimen sheet with its label card" },
+  { value: "manuscript", description: "A book page for long reading, notes in its margin" },
+  { value: "lacquer", description: "Black lacquer, vermilion and gold leaf; opens dark" },
+  { value: "zine", description: "A self-printed zine on grainy photocopy paper" },
+  { value: "atlas", description: "An old atlas on parchment; each top folder a region" },
+  { value: "catalog", description: "A library card catalogue: each note a typed card" },
+  { value: "eink", description: "An e-reader's page: greys only, nothing moving, large type" },
+  { value: "paddy", description: "The garden as terraced rice fields" },
+]
+
+/** The layouts of src/lib/vault.ts: for a note's own text, then collections that list other notes. */
+export const LAYOUTS: (Choice & { collection?: true })[] = [
+  { value: "cv", description: "A résumé: the title is your name" },
+  { value: "gallery", description: "Embedded pictures become a gallery" },
+  { value: "timeline", description: "Each ## heading a moment on a line down the page" },
+  { value: "links", description: "A page of links, as in a link-in-bio" },
+  { value: "uses", description: "What you work with" },
+  { value: "now", description: "What you are doing now" },
+  { value: "faq", description: "Each ## heading a question that opens on its answer" },
+  { value: "quotes", description: "Quotes become a wall of cards" },
+  { value: "paper", description: "An academic paper, with authors and abstract" },
+  { value: "decision", description: "An architecture decision record" },
+  { value: "changelog", description: "Each ## heading a version" },
+  { value: "dialogue", description: "An interview, podcast notes or a play" },
+  { value: "highlights", description: "Reading notes as Readwise or Kindle export them" },
+  { value: "glossary", description: "Definitions A–Z" },
+  { value: "trip", description: "A travel journal: each ## heading a day or a stop" },
+  { value: "syllabus", description: "A course: each ## heading a lesson" },
+  { value: "poem", description: "Verse, centred, its lines kept" },
+  { value: "letter", description: "A letter on a sheet of paper" },
+  { value: "compare", description: "Options side by side: each ## heading an option" },
+  { value: "checklist", description: "Every task of the note a box readers can tick" },
+  { value: "recipe-card", description: "One recipe as an A6 index card" },
+  { value: "hub", description: "A map of content drawn round the note" },
+  { value: "lore", description: "A character, place or faction of a world you build" },
+  { value: "projects", description: "Collection: a card for each project", collection: true },
+  { value: "books", description: "Collection: a shelf of covers", collection: true },
+  { value: "movies", description: "Collection: a shelf of posters", collection: true },
+  { value: "talks", description: "Collection: a row for each talk", collection: true },
+  { value: "recipes", description: "Collection: a card for each recipe", collection: true },
+  { value: "places", description: "Collection: a map of places over their cards", collection: true },
+  { value: "shelf", description: "Collection: a shelf of anything else", collection: true },
+  { value: "daily", description: "Collection: a journal with a calendar of the year", collection: true },
+  { value: "bookmarks", description: "Collection: a reading list of clipped pages", collection: true },
+  { value: "people", description: "Collection: a grid of faces", collection: true },
+  { value: "snippets", description: "Collection: code snippets or things learned", collection: true },
+  { value: "episodes", description: "Collection: a podcast or a newsletter", collection: true },
+  { value: "courses", description: "Collection: courses taken, taking or to take", collection: true },
+  { value: "wishlist", description: "Collection: things you would like to get", collection: true },
+  { value: "quotebook", description: "Collection: every quote of the listed notes", collection: true },
+  { value: "questions", description: "Collection: open questions", collection: true },
+  { value: "digest", description: "Collection: a weekly digest of the garden", collection: true },
+]
+
+export const CHROMES: Choice[] = [
+  { value: "full", description: "The whole frame: header, sidebar and footer" },
+  { value: "minimal", description: "Only the page" },
+]
+
+/** datme matches style, chrome and layout trimmed and in lower case. */
+const pick = (v: unknown) => String(v).trim().toLowerCase()
+
+/** The frontmatter keys whose values the plugin knows. */
+export const KNOWN_PROPERTIES = ["style", "layout", "chrome", "stage", "lang", "password"] as const
+export type KnownProperty = (typeof KNOWN_PROPERTIES)[number]
+
+/** The values a property can take in this garden; groups are the `@group` passwords already used in the vault. */
+export function propertyChoices(key: KnownProperty, config: GardenConfig, groups: string[] = []): Choice[] {
+  switch (key) {
+    case "style":
+      return STYLES
+    case "layout":
+      return LAYOUTS
+    case "chrome":
+      return CHROMES
+    case "stage":
+      return config.stages.map((s) => ({ value: s.name, description: s.label }))
+    case "lang":
+      return config.languages.map((l, i) => ({ value: l, description: i === 0 ? "The default language" : "" }))
+    case "password":
+      return [...new Set(groups)].sort().map((g) => ({ value: g, description: `Password from DATME_LOCK_${lockVariable(g)}` }))
+  }
+}
+
+/** The variable part of the environment variable holding a group's password: `@close-friends` → CLOSE_FRIENDS. */
+export function lockVariable(group: string): string {
+  return group
+    .replace(/^@/, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_|_$/g, "")
+}
+
+/**
+ * What is wrong with a property's value, in datme check's words where it has
+ * some, or undefined when datme takes it. A value that is not text is left to
+ * datme, as are styles when a theme pack may add its own.
+ */
+export function propertyProblem(key: string, value: unknown, config: GardenConfig): string | undefined {
+  if (value === null || value === undefined || value === "") return undefined
+  if (key === "style") {
+    if (config.preset || STYLES.some((s) => s.value === pick(value))) return undefined
+    return `style "${value}" is not one of ${STYLES.map((s) => s.value).join(", ")}, so the note keeps its usual style`
+  }
+  if (key === "layout") {
+    if (LAYOUTS.some((l) => l.value === pick(value))) return undefined
+    return `layout "${value}" is not one of ${LAYOUTS.map((l) => l.value).join(", ")}, so the note is laid out as usual`
+  }
+  if (key === "chrome") {
+    if (CHROMES.some((c) => c.value === pick(value))) return undefined
+    return `chrome "${value}" is not one of ${CHROMES.map((c) => c.value).join(", ")}, so the note keeps its usual frame`
+  }
+  if (key === "stage" && typeof value === "string") {
+    if (config.stages.some((s) => s.name === value)) return undefined
+    return config.stages.length
+      ? `stage "${value}" is not one of ${config.stages.map((s) => s.name).join(", ")} in datme.yaml, so datme ignores it`
+      : `stage "${value}" is ignored: datme.yaml has no stages`
+  }
+  if (key === "lang" && typeof value === "string") {
+    if (config.languages.includes(value)) return undefined
+    return `lang "${value}" is not one of ${config.languages.join(", ")}, so the note is in ${config.languages[0]}`
+  }
+  if (key === "password" && typeof value === "string" && value.startsWith("@") && !/^@[\w-]+$/.test(value)) {
+    return `password "${value}" is not a group name (@ then letters, digits, _ or -), so it is used as the password itself`
+  }
+  return undefined
+}
+
+/** Where a frontmatter line names a property: the key and where its value starts and ends. */
+export function propertyLine(line: string): { key: string; from: number; to: number; value: string } | undefined {
+  const m = /^([A-Za-z_][\w-]*)[ \t]*:[ \t]*/.exec(line)
+  if (!m) return undefined
+  let value = line.slice(m[0].length)
+  const comment = value.search(/\s#/)
+  if (comment >= 0) value = value.slice(0, comment)
+  value = value.trimEnd()
+  let from = m[0].length
+  let to = from + value.length
+  const quoted = /^(["'])(.*)\1$/.exec(value)
+  if (quoted) {
+    from++
+    to--
+    value = quoted[2]
+  }
+  return { key: m[1], from, to, value }
+}
+
+/**
+ * A script for the page: scroll to the heading with these words, or to the top.
+ * Headings are matched by their text, which datme keeps, rather than by an id
+ * whose rules could drift.
+ */
+export function scrollScript(heading: string | undefined): string {
+  return `(() => {
+  const want = ${JSON.stringify(heading ?? null)}
+  if (want === null) return window.scrollTo({ top: 0, behavior: "smooth" })
+  const norm = (s) => s.replace(/\\s+/g, " ").replace(/[#¶§🔗]+$/u, "").trim().toLowerCase()
+  const target = norm(want)
+  const h = [...document.querySelectorAll("main h1, main h2, main h3, main h4, main h5, main h6, h1, h2, h3, h4, h5, h6")]
+    .find((el) => norm(el.textContent || "") === target)
+  h?.scrollIntoView({ behavior: "smooth", block: "start" })
+})()`
 }
