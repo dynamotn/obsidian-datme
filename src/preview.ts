@@ -101,6 +101,12 @@ export class PreviewView extends ItemView {
     this.plugin.previewLook.render(bar, () => this.lookChanged())
   }
 
+  /** Show the active note again: asked for once more, the page may have been missing or the server down. */
+  async showActive() {
+    const file = this.app.workspace.getActiveFile()
+    if (file?.extension === "md") await this.show(file)
+  }
+
   /** Show a note's page, starting the preview server when it is not running. */
   private async show(file: TFile) {
     const run = ++this.runs
@@ -109,7 +115,13 @@ export class PreviewView extends ItemView {
     // @ts-expect-error: refreshes the tab title, which Obsidian reads from getDisplayText
     this.leaf.updateHeader?.()
     this.say(`🌱 Finding ${file.basename} on the site…`)
-    const page = await this.plugin.pagePath(file)
+    let page: string | undefined
+    try {
+      page = await this.plugin.pagePath(file)
+    } catch (e) {
+      if (run === this.runs) this.say(`datme could not run: ${(e as Error).message}. Is the command right in the settings?`)
+      return
+    }
     if (run !== this.runs) return
     if (page === undefined) {
       this.page = undefined

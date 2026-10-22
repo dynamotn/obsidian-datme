@@ -127,6 +127,8 @@ export default class DatmePlugin extends Plugin {
     this.registerEvent(this.app.vault.on("rename", () => this.explorer.refresh()))
     this.registerEvent(this.app.vault.on("delete", () => this.explorer.refresh()))
     this.registerEvent(this.app.workspace.on("layout-change", () => this.explorer.refresh()))
+    // The explorer loads only when first shown, so its rows exist from then on.
+    this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => leaf?.view.getViewType() === "file-explorer" && this.explorer.refresh()))
     this.app.workspace.onLayoutReady(() => this.explorer.refresh())
     // The config is read again when it is written, created, deleted or renamed.
     const reread = (path: string, oldPath?: string) => {
@@ -473,20 +475,25 @@ export default class DatmePlugin extends Plugin {
     new ProblemsModal(this.app, saved.result, this.settings.showNotices, saved.at ? ago(saved.at, Date.now()) : undefined).open()
   }
 
-  /** The page path of a note on the preview server, from `datme url`; undefined when datme does not publish it. */
+  /**
+   * The page path of a note on the preview server, from `datme url`; undefined
+   * when datme does not publish it. Throws when the command cannot run.
+   */
   async pagePath(file: TFile): Promise<string | undefined> {
-    const out = await this.run(["url", file.path, this.vaultPath()]).catch(() => undefined)
-    return out && out.code === 0 ? out.stdout.trim().split("\n").pop()?.trim() || "/" : undefined
+    const out = await this.run(["url", file.path, this.vaultPath()])
+    return out.code === 0 ? out.stdout.trim().split("\n").pop()?.trim() || "/" : undefined
   }
 
   /** The preview pane, beside the note; the browser where Obsidian cannot embed pages. */
   async openPreviewPane() {
     if (!hasWebview()) return this.openPreview()
-    let leaf = this.app.workspace.getLeavesOfType(PREVIEW_VIEW)[0]
-    if (!leaf) {
-      leaf = this.app.workspace.getLeaf("split", "vertical")
-      await leaf.setViewState({ type: PREVIEW_VIEW, active: false })
+    const open = this.app.workspace.getLeavesOfType(PREVIEW_VIEW)[0]
+    if (open) {
+      void this.app.workspace.revealLeaf(open)
+      return void (open.view as PreviewView).showActive()
     }
+    const leaf = this.app.workspace.getLeaf("split", "vertical")
+    await leaf.setViewState({ type: PREVIEW_VIEW, active: false })
     void this.app.workspace.revealLeaf(leaf)
   }
 

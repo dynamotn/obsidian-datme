@@ -74,7 +74,7 @@ describe("running datme", () => {
 
   test("PATH gains the usual tool folders once", () => {
     expect(augmentedPath("/usr/bin:/opt/homebrew/bin", "/Users/me")).toBe(
-      "/usr/bin:/opt/homebrew/bin:/Users/me/.bun/bin:/usr/local/bin:/Users/me/.local/bin:/Users/me/.npm-global/bin",
+      "/usr/bin:/opt/homebrew/bin:/Users/me/.bun/bin:/usr/local/bin:/Users/me/.local/bin:/Users/me/.npm-global/bin:/Users/me/.local/share/mise/shims:/Users/me/.asdf/shims",
     )
   })
 

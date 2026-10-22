@@ -111,8 +111,8 @@ instead.
 - **Command**: how to run datme. The default, `bunx @dynamotn/datme`, needs
   nothing installed but Bun; use `npx @dynamotn/datme` with Node, or the path
   of a global install. Obsidian started from the dock doesn't see your shell's
-  `PATH`, so the plugin also looks in `~/.bun/bin`, `/opt/homebrew/bin` and
-  `/usr/local/bin`.
+  `PATH`, so the plugin also looks in `~/.bun/bin`, `/opt/homebrew/bin`,
+  `/usr/local/bin` and the shims of mise and asdf.
 - **Preview port**: 4321 by default.
 - **Badges in the file explorer**: on by default.
 - **Mark links to private notes**: on by default.

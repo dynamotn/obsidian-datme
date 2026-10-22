@@ -32,10 +32,12 @@ export function splitCommand(command: string): string[] {
 
 /**
  * PATH for the command: apps started from the dock don't inherit the shell's
- * PATH, so the usual places of bun, node and npm-installed tools are added.
+ * PATH, so the usual places of bun, node and npm-installed tools are added,
+ * version managers' shims included.
  */
 export function augmentedPath(path: string | undefined, home: string): string {
-  const extra = [`${home}/.bun/bin`, "/opt/homebrew/bin", "/usr/local/bin", `${home}/.local/bin`, `${home}/.npm-global/bin`]
+  // mise and asdf install bun and node behind shims, which a shell adds to PATH when it starts.
+  const extra = [`${home}/.bun/bin`, "/opt/homebrew/bin", "/usr/local/bin", `${home}/.local/bin`, `${home}/.npm-global/bin`, `${home}/.local/share/mise/shims`, `${home}/.asdf/shims`]
   const parts = (path ?? "").split(":").filter(Boolean)
   return [...parts, ...extra.filter((p) => !parts.includes(p))].join(":")
 }

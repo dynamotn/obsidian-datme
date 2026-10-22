@@ -8,7 +8,8 @@
 }
 
 .datme-badge-folder {
-  color: var(--text-faint);
+  color: inherit;
+  opacity: 0.6;
   font-variant-numeric: tabular-nums;
 }
 
