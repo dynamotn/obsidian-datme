@@ -58,6 +58,7 @@ import { ExplorerBadges } from "./explorer"
 import { propertyLinter, PropertySuggest } from "./properties"
 import { LookModal, type LookKey } from "./pick"
 import { markRenderedLinks, privateLinkMarker } from "./private-links"
+import { ScheduleModal, unschedule } from "./schedule"
 
 const SUGGESTIONS_VIEW = "datme-suggestions"
 const DASHBOARD_VIEW = "datme-dashboard"
@@ -147,6 +148,12 @@ export default class DatmePlugin extends Plugin {
             .setIcon(published ? "lock" : "sprout")
             .onClick(() => void this.togglePublish(file)),
         )
+        menu.addItem((item) =>
+          item
+            .setTitle("datme: schedule…")
+            .setIcon("calendar-clock")
+            .onClick(() => new ScheduleModal(this.app, file, this.mode).open()),
+        )
         if (published && this.config.url) {
           menu.addItem((item) =>
             item
@@ -180,6 +187,26 @@ export default class DatmePlugin extends Plugin {
         const file = this.markdownFile()
         if (file && !checking) void this.togglePublish()
         return !!file
+      },
+    })
+    this.addCommand({
+      id: "schedule",
+      name: "Schedule this note…",
+      checkCallback: (checking) => {
+        const file = this.markdownFile()
+        if (file && !checking) new ScheduleModal(this.app, file, this.mode).open()
+        return !!file
+      },
+    })
+    this.addCommand({
+      id: "unschedule",
+      name: "Unschedule this note: publish it on the next build",
+      checkCallback: (checking) => {
+        const file = this.markdownFile()
+        const fm = file && this.app.metadataCache.getFileCache(file)?.frontmatter
+        const scheduled = fm != null && (fm.publish_date != null || fm.publishDate != null)
+        if (file && scheduled && !checking) void unschedule(this.app, file)
+        return scheduled
       },
     })
     this.addCommand({

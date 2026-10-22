@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   ago,
+  publishDateValue,
   linksIn,
   privateLinkLabel,
   notePath,
@@ -457,5 +458,23 @@ describe("links to private notes", () => {
       { from: 29, to: 44, target: "B c.md#h", alias: "x" },
     ])
     expect(linksIn("[[Plain]]")).toEqual([{ from: 0, to: 9, target: "Plain", alias: undefined }])
+  })
+})
+
+describe("scheduling", () => {
+  test("a day alone, or a time with the offset it was chosen in", () => {
+    expect(publishDateValue("2026-11-01", undefined, 420)).toBe("2026-11-01")
+    expect(publishDateValue("2026-11-01", "09:30", 420)).toBe("2026-11-01T09:30:00+07:00")
+    expect(publishDateValue("2026-11-01", "09:30", -330)).toBe("2026-11-01T09:30:00-05:30")
+    expect(new Date(publishDateValue("2026-11-01", "09:30", 420)).toISOString()).toBe("2026-11-01T02:30:00.000Z")
+    expect(() => publishDateValue("1/11/2026", undefined, 0)).toThrow()
+  })
+
+  test("what it writes is what the status bar reads back", () => {
+    const now = new Date("2026-10-22")
+    expect(noteState({ publish: true, publish_date: publishDateValue("2026-11-01", "09:30", 420) }, "explicit", now)).toEqual({
+      state: "scheduled",
+      date: "2026-11-01",
+    })
   })
 })

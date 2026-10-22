@@ -751,3 +751,19 @@ export function linksIn(line: string): { from: number; to: number; target: strin
   }
   return out.sort((a, b) => a.from - b.from)
 }
+
+/**
+ * The `publish_date` for a day, and a time of that day when one is given. A
+ * time carries the offset of the computer it was chosen on, since the build
+ * that reads it may run elsewhere (in UTC, for CI). offset is in minutes east
+ * of UTC, as `-new Date().getTimezoneOffset()` gives it.
+ */
+export function publishDateValue(day: string, time: string | undefined, offset: number): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error(`"${day}" is not a day as YYYY-MM-DD`)
+  if (!time) return day
+  if (!/^\d{2}:\d{2}$/.test(time)) throw new Error(`"${time}" is not a time as HH:MM`)
+  const sign = offset < 0 ? "-" : "+"
+  const abs = Math.abs(offset)
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${day}T${time}:00${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`
+}

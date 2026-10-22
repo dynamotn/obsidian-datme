@@ -21,6 +21,13 @@ your digital garden without leaving Obsidian.
   of layout: cv`…). Choosing one writes it in the frontmatter; *Default*
   removes it. On the desktop, ⌘/Ctrl+Enter tries it in the preview pane
   first, without writing anything.
+- **Schedule this note…** (also in the note's menu) picks a day, and a time
+  if you want one, and writes it as `publish_date`; a private note is marked
+  published too. A time keeps your computer's time zone (`2026-11-01T09:30:00+07:00`),
+  so a build in UTC publishes it at the moment you meant. *Unschedule this
+  note* removes the date, so the next build publishes it. datme publishes a
+  scheduled note on the first build from its date on: the site needs a daily
+  build for it to appear on its day.
 - **Copy the public link** of the current note (command palette, the note's
   menu or the editor's) copies its address on the live site, from `site.url`.
   With text selected, the link opens the page on that passage (`#:~:text=`),
@@ -69,6 +76,7 @@ The plugin also runs in Obsidian on mobile, with what needs no command:
   (*datme: publish* or *datme: keep private*) or the command palette;
 - the badges in the file explorer, and publishing a folder at once;
 - the 🔒 on links to private notes;
+- scheduling a note with *Schedule this note…*;
 - copying the public link of a note or a passage, its path worked out by the
   plugin as datme does;
 - suggesting and checking datme's properties in the frontmatter, and *Set
