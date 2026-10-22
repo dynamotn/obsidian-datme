@@ -26,6 +26,10 @@ your digital garden without leaving Obsidian.
   With text selected, the link opens the page on that passage (`#:~:text=`),
   as the site's own share button does. A private, draft or scheduled note has
   no link yet, and the plugin says so.
+- **Links to private notes** get a dotted underline and a 🔒 in live preview
+  and reading view, since readers won't see them as links. Hover one for what
+  the site shows instead under your `privateLinks` (its words as plain text,
+  a placeholder, or nothing). A draft or scheduled note's links say so too.
 - **Check the garden for problems** runs `datme check` and lists broken links,
   missing files and invalid frontmatter by note; click a note to open it.
 - **Show link suggestions** opens a pane beside the note you're writing. It
@@ -64,6 +68,7 @@ The plugin also runs in Obsidian on mobile, with what needs no command:
 - whether the current note is published, and flipping it, from the note's menu
   (*datme: publish* or *datme: keep private*) or the command palette;
 - the badges in the file explorer, and publishing a folder at once;
+- the 🔒 on links to private notes;
 - copying the public link of a note or a passage, its path worked out by the
   plugin as datme does;
 - suggesting and checking datme's properties in the frontmatter, and *Set
@@ -102,6 +107,7 @@ instead.
   `/usr/local/bin`.
 - **Preview port**: 4321 by default.
 - **Badges in the file explorer**: on by default.
+- **Mark links to private notes**: on by default.
 - **Show notices**: also list links to unpublished notes in the check report.
 
 ## Development

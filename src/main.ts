@@ -30,6 +30,7 @@ import {
   gardenCounts,
   groupProblems,
   ago,
+  badgeOf,
   isIgnored,
   isPublished,
   locate,
@@ -56,6 +57,7 @@ import { PreviewLook } from "./look"
 import { ExplorerBadges } from "./explorer"
 import { propertyLinter, PropertySuggest } from "./properties"
 import { LookModal, type LookKey } from "./pick"
+import { markRenderedLinks, privateLinkMarker } from "./private-links"
 
 const SUGGESTIONS_VIEW = "datme-suggestions"
 const DASHBOARD_VIEW = "datme-dashboard"
@@ -84,9 +86,11 @@ interface Settings {
   saveReport: boolean
   /** Badges beside notes and folders in the file explorer. */
   explorerBadges: boolean
+  /** A dotted underline and 🔒 on links to notes datme does not publish. */
+  markPrivateLinks: boolean
 }
 
-const DEFAULTS: Settings = { command: "bunx @dynamotn/datme", port: 4321, showNotices: false, saveReport: true, explorerBadges: true }
+const DEFAULTS: Settings = { command: "bunx @dynamotn/datme", port: 4321, showNotices: false, saveReport: true, explorerBadges: true, markPrivateLinks: true }
 
 export default class DatmePlugin extends Plugin {
   settings: Settings = { ...DEFAULTS }
@@ -98,6 +102,8 @@ export default class DatmePlugin extends Plugin {
   /** How the preview pane shows pages: light or dark, phone width, style and layout. */
   previewLook = new PreviewLook()
   explorer = new ExplorerBadges(this)
+  /** The state each note had when last seen, to tell when it changes. */
+  private states = new Map<string, string>()
 
   private get mode() {
     return this.config.mode
@@ -211,6 +217,17 @@ export default class DatmePlugin extends Plugin {
     }
     this.registerEditorSuggest(new PropertySuggest(this))
     this.registerEditorExtension(propertyLinter(this))
+    this.registerEditorExtension(privateLinkMarker(this))
+    this.registerMarkdownPostProcessor((el, ctx) => markRenderedLinks(this, el, ctx))
+    // Links to a note look private or not by its state: when one changes, they are drawn again.
+    this.registerEvent(
+      this.app.metadataCache.on("changed", (file, _data, cache) => {
+        const state = badgeOf(cache.frontmatter, this.mode, new Date())
+        const before = this.states.get(file.path)
+        this.states.set(file.path, state)
+        if (before !== undefined && before !== state) this.redrawLinks()
+      }),
+    )
     this.addSettingTab(new DatmeSettings(this.app, this))
     this.updateStatus()
   }
@@ -224,9 +241,21 @@ export default class DatmePlugin extends Plugin {
   private configChanged() {
     this.updateStatus()
     this.explorer.refresh()
-    // Editors underline frontmatter values against the new config.
-    this.app.workspace.updateOptions()
+    // Editors underline frontmatter values and mark links against the new config.
+    this.redrawLinks()
   }
+
+  /** Draw the editors and reading views again, for what the plugin marks in them. */
+  redrawLinks = debounce(
+    () => {
+      this.app.workspace.updateOptions()
+      for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+        if (leaf.view instanceof MarkdownView && leaf.view.getMode() === "preview") leaf.view.previewMode.rerender(true)
+      }
+    },
+    500,
+    true,
+  )
 
   /** The `@group` passwords notes of the vault use already. */
   passwordGroups(): string[] {
@@ -815,6 +844,16 @@ class DatmeSettings extends PluginSettingTab {
           this.plugin.settings.explorerBadges = v
           await this.plugin.saveSettings()
           this.plugin.explorer.render()
+        }),
+      )
+    new Setting(containerEl)
+      .setName("Mark links to private notes")
+      .setDesc("Give links to notes datme does not publish a dotted underline and a 🔒, with a tooltip saying what the site shows instead (privateLinks in datme.yaml).")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.markPrivateLinks).onChange(async (v) => {
+          this.plugin.settings.markPrivateLinks = v
+          await this.plugin.saveSettings()
+          this.plugin.redrawLinks()
         }),
       )
     new Setting(containerEl)

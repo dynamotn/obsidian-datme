@@ -710,3 +710,44 @@ export function textFragment(text: string): string {
   if (words.length <= 12) return `#:~:text=${enc(words.join(" "))}`
   return `#:~:text=${enc(words.slice(0, 5).join(" "))},${enc(words.slice(-5).join(" "))}`
 }
+
+/**
+ * What the site shows for a link to a note it does not publish, under
+ * `privateLinks`, as words for a tooltip: its text, a placeholder, or nothing.
+ */
+export function privateLinkLabel(
+  link: { target: string; alias?: string },
+  privateLinks: PrivateLinks,
+  why: { state: "private" | "draft" | "scheduled"; date?: string },
+): string {
+  const name = link.target.split("#")[0].split("/").pop()!.replace(/\.md$/i, "")
+  const shown = link.alias?.trim() || name
+  const site =
+    privateLinks === "placeholder"
+      ? "a placeholder (“a private note”)"
+      : privateLinks === "hide" && shown.toLowerCase() === name.toLowerCase()
+        ? "nothing"
+        : `“${shown}” as plain text`
+  const note = why.state === "draft" ? "A draft" : why.state === "scheduled" ? `Published on ${why.date}` : "A private note"
+  return `🔒 ${note}: the site shows ${site}${why.state === "scheduled" ? " until then" : ""}`
+}
+
+/** The links of a line of Markdown: wikilinks and links to .md files, with where they are, embeds left out. */
+export function linksIn(line: string): { from: number; to: number; target: string; alias?: string }[] {
+  const out: { from: number; to: number; target: string; alias?: string }[] = []
+  for (const m of line.matchAll(/(!?)\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g)) {
+    if (m[1]) continue
+    out.push({ from: m.index!, to: m.index! + m[0].length, target: m[2].trim(), alias: m[3] })
+  }
+  for (const m of line.matchAll(/(!?)\[([^\]]*)\]\(([^)\s]+\.md(?:#[^)\s]*)?)\)/gi)) {
+    if (m[1] || /^[a-z]+:/i.test(m[3])) continue
+    let target = m[3]
+    try {
+      target = decodeURIComponent(target)
+    } catch {
+      // a stray % keeps the link as written
+    }
+    out.push({ from: m.index!, to: m.index! + m[0].length, target, alias: m[2] })
+  }
+  return out.sort((a, b) => a.from - b.from)
+}

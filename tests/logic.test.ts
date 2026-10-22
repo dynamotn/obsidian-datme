@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import {
   ago,
+  linksIn,
+  privateLinkLabel,
   notePath,
   publicUrl,
   textFragment,
@@ -433,5 +435,27 @@ describe("public links", () => {
     const long = "one two three four five six seven eight nine ten eleven twelve thirteen"
     expect(textFragment(long)).toBe("#:~:text=one%20two%20three%20four%20five,nine%20ten%20eleven%20twelve%20thirteen")
     expect(textFragment("   ")).toBe("")
+  })
+})
+
+describe("links to private notes", () => {
+  test("the tooltip says what the site shows under privateLinks", () => {
+    const priv = { state: "private" as const }
+    expect(privateLinkLabel({ target: "Secret", alias: "my secret" }, "text", priv)).toBe("🔒 A private note: the site shows “my secret” as plain text")
+    expect(privateLinkLabel({ target: "Secret" }, "placeholder", priv)).toBe("🔒 A private note: the site shows a placeholder (“a private note”)")
+    expect(privateLinkLabel({ target: "Secret", alias: "secret" }, "hide", priv)).toBe("🔒 A private note: the site shows nothing")
+    expect(privateLinkLabel({ target: "Secret", alias: "that one" }, "hide", priv)).toBe("🔒 A private note: the site shows “that one” as plain text")
+    expect(privateLinkLabel({ target: "Later" }, "text", { state: "scheduled", date: "2027-01-01" })).toBe(
+      "🔒 Published on 2027-01-01: the site shows “Later” as plain text until then",
+    )
+    expect(privateLinkLabel({ target: "Wip" }, "text", { state: "draft" })).toStartWith("🔒 A draft:")
+  })
+
+  test("the links of a line: wikilinks and links to notes, embeds and web links left out", () => {
+    expect(linksIn("See [[A/Note#Part|this]] and [x](B%20c.md#h), ![[Pic]], [w](https://x.y/a.md)")).toEqual([
+      { from: 4, to: 24, target: "A/Note#Part", alias: "this" },
+      { from: 29, to: 44, target: "B c.md#h", alias: "x" },
+    ])
+    expect(linksIn("[[Plain]]")).toEqual([{ from: 0, to: 9, target: "Plain", alias: undefined }])
   })
 })

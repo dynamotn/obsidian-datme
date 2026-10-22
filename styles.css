@@ -69,15 +69,22 @@
 
 /* Links to notes datme does not publish, as readers will not see them. */
 .datme-private-link,
+.datme-private-link .cm-underline,
 .markdown-rendered a.internal-link.datme-private-link {
-  text-decoration-style: dotted;
   text-decoration-line: underline;
+  text-decoration-style: dotted;
   opacity: 0.75;
 }
 
-.datme-private-link::after {
-  content: " 🔒";
-  font-size: 0.8em;
+/* The 🔒 after the link: a widget in the editor, drawn by CSS in reading view. */
+.datme-private-lock,
+.markdown-rendered a.internal-link.datme-private-link::after {
+  margin-inline-start: 0.15em;
+  font-size: 0.75em;
+}
+
+.markdown-rendered a.internal-link.datme-private-link::after {
+  content: "🔒";
 }
 
 /* Frontmatter values datme would not take. */
