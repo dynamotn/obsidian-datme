@@ -30,14 +30,18 @@ import {
   gardenCounts,
   groupProblems,
   ago,
+  isIgnored,
   isPublished,
   locate,
   mentionLink,
   noteState,
   parseCheck,
   parseSuggestions,
+  notePath,
   previewUrl,
   propertyProblems,
+  publicUrl,
+  textFragment,
   relatedWhy,
   splitCommand,
   summary,
@@ -137,6 +141,28 @@ export default class DatmePlugin extends Plugin {
             .setIcon(published ? "lock" : "sprout")
             .onClick(() => void this.togglePublish(file)),
         )
+        if (published && this.config.url) {
+          menu.addItem((item) =>
+            item
+              .setTitle("datme: copy public link")
+              .setIcon("link")
+              .onClick(() => void this.copyPublicLink(file)),
+          )
+        }
+      }),
+    )
+    // With text selected, the link opens the page on that passage.
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu, editor, info) => {
+        const file = info.file
+        if (!file || file.extension !== "md" || !this.config.url) return
+        const selection = editor.getSelection()
+        menu.addItem((item) =>
+          item
+            .setTitle(selection.trim() ? "datme: copy public link to this passage" : "datme: copy public link")
+            .setIcon("link")
+            .onClick(() => void this.copyPublicLink(file, selection)),
+        )
       }),
     )
     this.registerEvent(this.app.workspace.on("files-menu", (menu, files) => this.explorer.addMenuItems(menu, files)))
@@ -147,6 +173,15 @@ export default class DatmePlugin extends Plugin {
       checkCallback: (checking) => {
         const file = this.markdownFile()
         if (file && !checking) void this.togglePublish()
+        return !!file
+      },
+    })
+    this.addCommand({
+      id: "copy-public-link",
+      name: "Copy the public link of the current note (or of the selected passage)",
+      checkCallback: (checking) => {
+        const file = this.markdownFile()
+        if (file && !checking) void this.copyPublicLink(file, this.app.workspace.getActiveViewOfType(MarkdownView)?.editor.getSelection())
         return !!file
       },
     })
@@ -283,6 +318,29 @@ export default class DatmePlugin extends Plugin {
     if (!Platform.isDesktopApp) return undefined
     const out = await this.run(["url", file.path, this.vaultPath()]).catch(() => undefined)
     return out && out.code === 0 ? out.stdout.trim().split("\n").pop() : undefined
+  }
+
+  /**
+   * Copy a note's address on the live site, with a passage when one is given.
+   * The path comes from `datme url` on the desktop, and from the plugin's own
+   * rules on a phone, or when the command cannot run.
+   */
+  async copyPublicLink(file: TFile, passage?: string) {
+    if (!this.config.url) return void new Notice("datme.yaml has no site.url, so the plugin does not know the site's address.", 6000)
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter
+    const { state, date } = noteState(fm, this.mode, new Date())
+    if (state !== "published" || isIgnored(file.path, this.config)) {
+      const why = state === "draft" ? "is a draft" : state === "scheduled" ? `is published on ${date}` : "is not published"
+      return void new Notice(`${file.basename} ${why}, so it has no public link yet.`, 5000)
+    }
+    const path = (await this.noteUrl(file)) ?? notePath(file.path, fm, this.config)
+    const url = publicUrl(this.config.url, path) + (passage ? textFragment(passage) : "")
+    try {
+      await navigator.clipboard.writeText(url)
+    } catch {
+      return void new Notice(`datme could not copy the link: ${url}`, 10000)
+    }
+    new Notice(`🔗 Copied ${url}`)
   }
 
   /** Related notes and unlinked mentions of a note, from `datme related`. */
@@ -659,7 +717,7 @@ class DashboardView extends ItemView {
       el.createEl("h4", { text: "On the web" })
       const links = el.createEl("ul")
       links.createEl("li").createEl("a", { text: config.url.replace(/^https?:\/\//, ""), href: config.url })
-      if (active && noteUrl) links.createEl("li").createEl("a", { text: active.basename, href: config.url + noteUrl })
+      if (active && noteUrl) links.createEl("li").createEl("a", { text: active.basename, href: publicUrl(config.url, noteUrl) })
     }
   }
 

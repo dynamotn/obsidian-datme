@@ -189,6 +189,8 @@ export interface GardenConfig {
   preset?: string
   /** Which style notes get when they name none: `appearance:`. */
   appearance: Appearance
+  /** The note that is the home page, `index.md` unless set. */
+  home: string
 }
 
 export interface Appearance {
@@ -205,6 +207,12 @@ export interface Appearance {
   languages: Record<string, string>
   /** Styles for days of the year, MM-DD to MM-DD, both included. */
   schedule: { style: string; from: string; to: string }[]
+}
+
+/** `home:` names a note, or is `{ note }`; `bento` draws the home page, so index.md is no page then. */
+function homeOf(raw: unknown): string {
+  const note = typeof raw === "string" ? (raw === "bento" ? "index.md" : raw) : typeof record(raw).note === "string" ? String(record(raw).note) : "index.md"
+  return note.replace(/^\/+/, "") || "index.md"
 }
 
 function appearanceOf(raw: unknown): Appearance {
@@ -259,6 +267,7 @@ export function gardenConfig(parsed: unknown): GardenConfig {
     privateLinks: c.privateLinks === "placeholder" || c.privateLinks === "hide" ? c.privateLinks : "text",
     preset: typeof theme.preset === "string" && theme.preset ? theme.preset : undefined,
     appearance: appearanceOf(c.appearance),
+    home: homeOf(c.home),
   }
 }
 
@@ -649,4 +658,55 @@ export function noteStage(note: NoteLook, config: GardenConfig): string | undefi
   if (typeof own === "string" && names.includes(own)) return own
   const top = note.path.includes("/") ? note.path.split("/")[0] : undefined
   return top && names.includes(top) ? top : undefined
+}
+
+/** A part of a page path as datme writes it: spaces as dashes, & and % in words, ? and # gone; case and accents kept. */
+export function slugSegment(s: string): string {
+  const slug = s.normalize("NFC").replace(/\s/g, "-").replace(/&/g, "-and-").replace(/%/g, "-percent").replace(/\?/g, "").replace(/#/g, "")
+  return slug === "." || slug === ".." ? "" : slug
+}
+
+const slugPath = (p: string) => p.split("/").map(slugSegment).filter(Boolean).join("/")
+
+/**
+ * The URL path datme gives a note, from the root of the site (without its
+ * base path), as `datme url` would print it: the home note is `/`, a
+ * `permalink:` replaces the path, a title in the page's language replaces the
+ * file name, and a language other than the first is a prefix.
+ */
+export function notePath(path: string, fm: Record<string, unknown> | undefined, config: GardenConfig): string {
+  const lang = typeof fm?.lang === "string" && config.languages.includes(fm.lang) ? fm.lang : config.languages[0]
+  const prefix = lang === config.languages[0] ? "" : `${lang}/`
+  const inLang = (v: unknown) => (typeof v === "string" ? v : typeof record(v)[lang] === "string" ? String(record(v)[lang]) : undefined)
+  let slug: string
+  if (path === config.home) slug = "index"
+  else {
+    const parts = path.replace(/\.md$/i, "").split("/")
+    const stem = parts.pop()!
+    const title = typeof fm?.title === "object" ? inLang(fm.title) : undefined
+    const permalink = inLang(fm?.permalink)
+    slug = permalink ? slugPath(permalink.replace(/^\/+|\/+$/g, "")) : ""
+    if (!slug) slug = slugPath([...parts, title ?? stem].join("/"))
+  }
+  slug = prefix + slug
+  if (slug === "" || slug === "index") return "/"
+  const clean = slug.replace(/(^|\/)index$/, "")
+  return "/" + clean.split("/").map(encodeURIComponent).join("/")
+}
+
+/** The address of a page path on the live site; the path may or may not carry the site's base path. */
+export function publicUrl(siteUrl: string, pagePath: string): string {
+  const site = new URL(siteUrl)
+  const base = site.pathname.replace(/\/+$/, "")
+  const path = base && (pagePath === base || pagePath.startsWith(base + "/")) ? pagePath : base + pagePath
+  return site.origin + (path || "/")
+}
+
+/** A link to a passage, as the site's share button writes it: the passage, or its first and last five words. */
+export function textFragment(text: string): string {
+  const enc = (s: string) => encodeURIComponent(s).replace(/-/g, "%2D").replace(/,/g, "%2C").replace(/&/g, "%26")
+  const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean)
+  if (!words.length) return ""
+  if (words.length <= 12) return `#:~:text=${enc(words.join(" "))}`
+  return `#:~:text=${enc(words.slice(0, 5).join(" "))},${enc(words.slice(-5).join(" "))}`
 }

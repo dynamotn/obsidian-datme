@@ -21,6 +21,11 @@ your digital garden without leaving Obsidian.
   of layout: cv`…). Choosing one writes it in the frontmatter; *Default*
   removes it. On the desktop, ⌘/Ctrl+Enter tries it in the preview pane
   first, without writing anything.
+- **Copy the public link** of the current note (command palette, the note's
+  menu or the editor's) copies its address on the live site, from `site.url`.
+  With text selected, the link opens the page on that passage (`#:~:text=`),
+  as the site's own share button does. A private, draft or scheduled note has
+  no link yet, and the plugin says so.
 - **Check the garden for problems** runs `datme check` and lists broken links,
   missing files and invalid frontmatter by note; click a note to open it.
 - **Show link suggestions** opens a pane beside the note you're writing. It
@@ -59,6 +64,8 @@ The plugin also runs in Obsidian on mobile, with what needs no command:
 - whether the current note is published, and flipping it, from the note's menu
   (*datme: publish* or *datme: keep private*) or the command palette;
 - the badges in the file explorer, and publishing a folder at once;
+- copying the public link of a note or a passage, its path worked out by the
+  plugin as datme does;
 - suggesting and checking datme's properties in the frontmatter, and *Set
   style…* / *Set layout…*;
 - the garden dashboard, without the link to the current note;

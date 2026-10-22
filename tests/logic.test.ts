@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import {
   ago,
+  notePath,
+  publicUrl,
+  textFragment,
   explainChrome,
   explainLayout,
   explainStyle,
@@ -171,6 +174,7 @@ describe("garden dashboard", () => {
       privateLinks: "text",
       preset: undefined,
       appearance: { style: "notebook", folders: {}, classic: [], tags: {}, stages: {}, languages: {}, schedule: [] },
+      home: "index.md",
     })
   })
 
@@ -394,5 +398,40 @@ describe("the look of a note", () => {
     expect(explainChrome({ path: "a.md" })).toEqual({ value: "full", rule: "the default" })
     expect(explainLayout({ path: "a.md", fm: { layout: " Books " } })).toEqual({ value: "books", rule: "layout: in a.md" })
     expect(explainLayout({ path: "a.md", fm: { layout: "nope" } })).toEqual({ rule: "no layout:" })
+  })
+})
+
+describe("public links", () => {
+  const config = gardenConfig({ languages: ["vi-VN", "en-US"], site: { url: "https://notes.example/garden/" } })
+
+  test("a note's path is its file's, as datme writes it: case and accents kept, spaces as dashes", () => {
+    expect(notePath("Ghi chú/Cây & hoa.md", {}, config)).toBe("/" + ["Ghi-chú", "Cây--and--hoa"].map(encodeURIComponent).join("/"))
+    expect(notePath("A/What? 100%.md", {}, config)).toBe("/A/What-100-percent")
+    expect(notePath("Folder/index.md", {}, config)).toBe("/Folder")
+    expect(notePath("index.md", { permalink: "/ignored/" }, config)).toBe("/")
+    expect(notePath("Home.md", {}, gardenConfig({ home: { note: "/Home.md" } }))).toBe("/")
+  })
+
+  test("permalinks, titles in the page's language and language prefixes", () => {
+    expect(notePath("A/b.md", { permalink: "/now/" }, config)).toBe("/now")
+    expect(notePath("A/b.md", { permalink: { "en-US": "en-now" }, lang: "en-US" }, config)).toBe("/en-US/en-now")
+    expect(notePath("A/b.md", { title: { "vi-VN": "Tiêu đề" } }, config)).toBe("/A/" + encodeURIComponent("Tiêu-đề"))
+    expect(notePath("A/b.md", { title: "Plain titles keep the path" }, config)).toBe("/A/b")
+    expect(notePath("A/b.md", { lang: "en-US" }, config)).toBe("/en-US/A/b")
+    expect(notePath("A/b.md", { lang: "fr" }, config)).toBe("/A/b")
+  })
+
+  test("the live address joins the site's URL, with its base path once", () => {
+    expect(publicUrl("https://notes.example/garden", "/A/b")).toBe("https://notes.example/garden/A/b")
+    expect(publicUrl("https://notes.example/garden", "/garden/A/b")).toBe("https://notes.example/garden/A/b")
+    expect(publicUrl("https://notes.example", "/A/b")).toBe("https://notes.example/A/b")
+    expect(publicUrl("https://notes.example", "/")).toBe("https://notes.example/")
+  })
+
+  test("a passage is linked as the site's share button does", () => {
+    expect(textFragment("  a  short,\n passage - here ")).toBe("#:~:text=a%20short%2C%20passage%20%2D%20here")
+    const long = "one two three four five six seven eight nine ten eleven twelve thirteen"
+    expect(textFragment(long)).toBe("#:~:text=one%20two%20three%20four%20five,nine%20ten%20eleven%20twelve%20thirteen")
+    expect(textFragment("   ")).toBe("")
   })
 })
