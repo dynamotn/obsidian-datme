@@ -9,7 +9,7 @@
  * when giscus finds discussions by title. Nothing is sent but the page's address.
  */
 import { debounce, ItemView, Notice, requestUrl, setIcon, type TFile, type WorkspaceLeaf } from "obsidian"
-import { ago, giscusTerm, mentionCounts, mentionTargets, pageTitles, parseGiscus, parseMentions, responseLine, type Response } from "./logic"
+import { ago, safeUrl, giscusTerm, mentionCounts, mentionTargets, pageTitles, parseGiscus, parseMentions, responseLine, type Response } from "./logic"
 import type DatmePlugin from "./main"
 
 export const RESPONSES_VIEW = "datme-responses"
@@ -176,15 +176,18 @@ export class ResponsesView extends ItemView {
     for (const r of words) {
       const li = list.createEl("li")
       const who = li.createDiv({ cls: "datme-response-who" })
-      if (r.author.url) who.createEl("a", { text: r.author.name, href: r.author.url })
+      // Parsing keeps only http(s) addresses; checked again where they become links.
+      const home = safeUrl(r.author.url)
+      if (home) who.createEl("a", { text: r.author.name, href: home })
       else who.createSpan({ text: r.author.name })
       const what = r.source === "giscus" ? "commented" : r.kind === "reply" ? "replied" : "mentioned this"
       who.createSpan({ cls: "u-muted", text: ` ${what}${r.via ? ` via ${r.via}` : ""}${r.at ? ` · ${ago(r.at, now)}` : ""}` })
       if (r.text) li.createDiv({ cls: "datme-response-text", text: r.text.length > 500 ? r.text.slice(0, 500) + "…" : r.text })
-      const reply = r.source === "giscus" ? (r.url ?? found.discussion?.url) : r.url
+      const reply = safeUrl(r.source === "giscus" ? (r.url ?? found.discussion?.url) : r.url)
       if (reply) li.createEl("a", { cls: "datme-response-reply", text: "Reply where it lives ↗", href: reply })
     }
-    if (found.discussion?.url) el.createEl("a", { text: "Open the discussion on GitHub ↗", href: found.discussion.url })
+    const discussion = safeUrl(found.discussion?.url)
+    if (discussion) el.createEl("a", { text: "Open the discussion on GitHub ↗", href: discussion })
   }
 }
 
@@ -249,14 +252,20 @@ export class ResponseWatcher {
     const settings = this.plugin.settings
     const newest = Math.max(0, ...all.map((r) => r.id ?? 0))
     // The first time, only remember where the account is: no flood of old mentions.
-    if (settings.lastMentionId && settings.notifyResponses) {
-      const fresh = all.filter((r) => (r.id ?? 0) > settings.lastMentionId)
-      for (const r of fresh.slice(0, 5)) new Notice(`💬 ${responseLine(r, this.plugin.titleOfUrl(r.target))}`, 8000)
-      if (fresh.length > 5) new Notice(`💬 …and ${fresh.length - 5} more responses`, 8000)
-    }
-    if (newest > settings.lastMentionId) {
+    const seen = settings.lastMentionId
+    const fresh = seen && settings.notifyResponses ? all.filter((r) => (r.id ?? 0) > seen) : []
+    // Remembered before telling, so a response that cannot be told is not told again at every poll.
+    if (newest > seen) {
       settings.lastMentionId = newest
       await this.plugin.saveSettings()
     }
+    for (const r of fresh.slice(0, 5)) {
+      try {
+        new Notice(`💬 ${responseLine(r, this.plugin.titleOfUrl(r.target))}`, 8000)
+      } catch {
+        new Notice("💬 A new response", 8000)
+      }
+    }
+    if (fresh.length > 5) new Notice(`💬 …and ${fresh.length - 5} more responses`, 8000)
   }
 }

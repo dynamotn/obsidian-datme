@@ -929,6 +929,20 @@ export interface Response {
   target?: string
 }
 
+/**
+ * An address readers sent, kept only when it is http(s): anyone can send a
+ * webmention, and a `javascript:` link would run in Obsidian when clicked.
+ */
+export function safeUrl(v: unknown): string | undefined {
+  if (typeof v !== "string" || !v) return undefined
+  try {
+    const u = new URL(v)
+    return u.protocol === "https:" || u.protocol === "http:" ? u.href : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** Text without markup, for showing what a reader wrote; the HTML is never put on the page. */
 export function plainText(html: string): string {
   return html
@@ -973,13 +987,13 @@ export function parseMentions(json: unknown): Response[] {
     out.push({
       source: "webmention",
       kind,
-      author: { name: str(author.name) ?? hostOf(str(author.url) ?? str(c.url)) ?? "Someone", url: str(author.url), photo: str(author.photo) },
-      url: str(c.url) ?? str(source),
+      author: { name: str(author.name) ?? hostOf(safeUrl(author.url) ?? safeUrl(c.url)) ?? "Someone", url: safeUrl(author.url), photo: safeUrl(author.photo) },
+      url: safeUrl(c.url) ?? safeUrl(source),
       at: fmDate(c.published) ?? fmDate(c["wm-received"]),
       text: text?.trim() || undefined,
       via: /\bbrid\.gy\b/.test(source) ? "Bridgy" : undefined,
       id: typeof c["wm-id"] === "number" ? c["wm-id"] : undefined,
-      target: str(c["wm-target"]),
+      target: safeUrl(c["wm-target"]),
     })
   }
   return out.sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
@@ -1003,8 +1017,8 @@ export function parseGiscus(json: unknown): { url?: string; responses: Response[
     out.push({
       source: "giscus",
       kind: "comment",
-      author: { name: typeof author.login === "string" ? author.login : "Someone", url: typeof author.url === "string" ? author.url : undefined, photo: typeof author.avatarUrl === "string" ? author.avatarUrl : undefined },
-      url: typeof c.url === "string" ? c.url : undefined,
+      author: { name: typeof author.login === "string" ? author.login : "Someone", url: safeUrl(author.url), photo: safeUrl(author.avatarUrl) },
+      url: safeUrl(c.url),
       at: fmDate(c.createdAt),
       text: typeof c.bodyHTML === "string" ? plainText(c.bodyHTML) || undefined : undefined,
     })
@@ -1014,7 +1028,7 @@ export function parseGiscus(json: unknown): { url?: string; responses: Response[
     for (const r of Array.isArray(c.replies) ? (c.replies as unknown[]).map(record) : []) add(r)
   }
   return {
-    url: typeof d.url === "string" ? d.url : undefined,
+    url: safeUrl(d.url),
     responses: out.sort((a, b) => (b.at ?? 0) - (a.at ?? 0)),
     reactions: typeof d.reactionCount === "number" ? d.reactionCount : 0,
   }

@@ -482,7 +482,15 @@ export default class DatmePlugin extends Plugin {
   titleOfUrl(url: string | undefined): string {
     if (!url) return "a page"
     const key = url.split("#")[0].replace(/\/+$/, "")
-    return this.notesByUrl().get(key)?.basename ?? decodeURI(key.replace(/^https?:\/\/[^/]+/, "") || "/")
+    const note = this.notesByUrl().get(key)
+    if (note) return note.basename
+    const path = key.replace(/^https?:\/\/[^/]+/, "") || "/"
+    try {
+      return decodeURI(path)
+    } catch {
+      // a stray % in an address a reader sent: shown as it came
+      return path
+    }
   }
 
   /** Related notes and unlinked mentions of a note, from `datme related`. */

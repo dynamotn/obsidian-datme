@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   ago,
+  safeUrl,
   giscusTerm,
   mentionCounts,
   mentionTargets,
@@ -638,5 +639,28 @@ describe("readers' responses", () => {
     ])
     expect(plainText("<p>a<br>b</p><p>&lt;c&gt; &#39;d&#39;</p>")).toBe("a\nb\n<c> 'd'")
     expect(responseLine({ source: "webmention", kind: "repost", author: { name: "Bo" }, via: "Bridgy" }, "Gardens")).toBe("Bo reposted Gardens (via Bridgy)")
+  })
+})
+
+describe("addresses readers send", () => {
+  test("only http(s) addresses are kept, so no link can run code", () => {
+    expect(safeUrl("https://a.example/x")).toBe("https://a.example/x")
+    expect(safeUrl("http://a.example")).toBe("http://a.example/")
+    expect(safeUrl("javascript:alert(1)")).toBeUndefined()
+    expect(safeUrl(" JavaScript:alert(1)")).toBeUndefined()
+    expect(safeUrl("data:text/html,<script>x</script>")).toBeUndefined()
+    expect(safeUrl("obsidian://open?vault=x")).toBeUndefined()
+    expect(safeUrl("/relative")).toBeUndefined()
+    expect(safeUrl(42)).toBeUndefined()
+  })
+
+  test("webmentions and giscus comments drop other schemes", () => {
+    const [m] = parseMentions({
+      children: [{ "wm-property": "in-reply-to", url: "javascript:alert(1)", "wm-source": "javascript:x", author: { name: "Eve", url: "javascript:alert(2)", photo: "data:x" }, "wm-target": "vbscript:y" }],
+    })
+    expect(m).toMatchObject({ author: { name: "Eve", url: undefined, photo: undefined }, url: undefined, target: undefined })
+    const g = parseGiscus({ discussion: { url: "javascript:z", comments: [{ author: { login: "eve", url: "javascript:a" }, url: "javascript:b", createdAt: "2026-10-01" }] } })
+    expect(g.url).toBeUndefined()
+    expect(g.responses[0]).toMatchObject({ author: { url: undefined }, url: undefined })
   })
 })
