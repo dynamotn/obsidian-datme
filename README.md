@@ -15,6 +15,12 @@ your digital garden without leaving Obsidian.
   your notes use already. A value datme would not take is underlined with the
   words `datme check` would use, and the status bar counts them (`⚠️ 1`), so
   you see them in the Properties view too.
+- **Set style…** and **Set layout…** list every style or layout with a line
+  on each, and say which one the note has now and what gives it, as the 🎨
+  bar does (`style: in Note.md`, `appearance.folders → Writing`, `the default
+  of layout: cv`…). Choosing one writes it in the frontmatter; *Default*
+  removes it. On the desktop, ⌘/Ctrl+Enter tries it in the preview pane
+  first, without writing anything.
 - **Check the garden for problems** runs `datme check` and lists broken links,
   missing files and invalid frontmatter by note; click a note to open it.
 - **Show link suggestions** opens a pane beside the note you're writing. It
@@ -53,7 +59,8 @@ The plugin also runs in Obsidian on mobile, with what needs no command:
 - whether the current note is published, and flipping it, from the note's menu
   (*datme: publish* or *datme: keep private*) or the command palette;
 - the badges in the file explorer, and publishing a folder at once;
-- suggesting and checking datme's properties in the frontmatter;
+- suggesting and checking datme's properties in the frontmatter, and *Set
+  style…* / *Set layout…*;
 - the garden dashboard, without the link to the current note;
 - the last check report. Each check on a computer saves it in
   `.datme/check.json` (the *Save the check report* setting), so it reaches

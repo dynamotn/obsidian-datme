@@ -21,6 +21,13 @@ export class PreviewLook {
   style = ""
   layout = ""
   chrome = ""
+  /** Puts the toolbar's controls back in line with the choices, when they change elsewhere. */
+  private controls: (() => void)[] = []
+
+  /** Show the choices in the toolbar again, after they changed elsewhere. */
+  sync() {
+    for (const update of this.controls) update()
+  }
 
   /** The 🎨 bar's query for the choices made, or "". */
   query(): string {
@@ -45,12 +52,14 @@ export class PreviewLook {
 
   /** The toggles and pickers, at the end of a toolbar; onChange runs after each choice. */
   render(bar: HTMLElement, onChange: () => void) {
+    this.controls = []
     const scheme = bar.createEl("button", { cls: "clickable-icon" })
     const showScheme = () => {
       setIcon(scheme, SCHEMES[this.scheme].icon)
       scheme.setAttribute("aria-label", SCHEMES[this.scheme].label)
     }
     showScheme()
+    this.controls.push(showScheme)
     scheme.addEventListener("click", () => {
       this.scheme = SCHEMES[this.scheme].next
       showScheme()
@@ -60,6 +69,7 @@ export class PreviewLook {
     const phone = bar.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "Phone width" } })
     setIcon(phone, "smartphone")
     phone.toggleClass("is-active", this.phone)
+    this.controls.push(() => phone.toggleClass("is-active", this.phone))
     phone.addEventListener("click", () => {
       this.phone = !this.phone
       phone.toggleClass("is-active", this.phone)
@@ -71,6 +81,7 @@ export class PreviewLook {
       el.createEl("option", { text: `${label}: the note's`, value: "" })
       for (const c of choices) el.createEl("option", { text: c.value, value: c.value, attr: { title: c.description } })
       el.value = get()
+      this.controls.push(() => (el.value = get()))
       el.addEventListener("change", () => {
         set(el.value)
         onChange()

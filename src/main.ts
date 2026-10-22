@@ -51,6 +51,7 @@ import { hasWebview, PREVIEW_VIEW, PreviewView } from "./preview"
 import { PreviewLook } from "./look"
 import { ExplorerBadges } from "./explorer"
 import { propertyLinter, PropertySuggest } from "./properties"
+import { LookModal, type LookKey } from "./pick"
 
 const SUGGESTIONS_VIEW = "datme-suggestions"
 const DASHBOARD_VIEW = "datme-dashboard"
@@ -161,6 +162,17 @@ export default class DatmePlugin extends Plugin {
       this.addCommand({ id: "stop-preview", name: "Stop the preview server", callback: () => this.stopPreview() })
       this.registerView(SUGGESTIONS_VIEW, (leaf) => new SuggestionsView(leaf, this))
       this.addCommand({ id: "suggestions", name: "Show link suggestions", callback: () => void this.openView(SUGGESTIONS_VIEW) })
+    }
+    for (const key of ["style", "layout"] as LookKey[]) {
+      this.addCommand({
+        id: `set-${key}`,
+        name: `Set ${key}…`,
+        checkCallback: (checking) => {
+          const file = this.markdownFile()
+          if (file && !checking) new LookModal(this.app, this, file, key).open()
+          return !!file
+        },
+      })
     }
     this.registerEditorSuggest(new PropertySuggest(this))
     this.registerEditorExtension(propertyLinter(this))
@@ -364,6 +376,12 @@ export default class DatmePlugin extends Plugin {
     void this.app.workspace.revealLeaf(leaf)
   }
 
+  /** The preview panes show the look chosen in a toolbar, or in *Set style…*. */
+  previewLookChanged() {
+    this.previewLook.sync()
+    for (const leaf of this.app.workspace.getLeavesOfType(PREVIEW_VIEW)) (leaf.view as PreviewView).lookChanged()
+  }
+
   /** Start `datme dev` unless it runs already, and wait until it answers. */
   async ensurePreview(): Promise<boolean> {
     const url = previewUrl(this.settings.port, "/")
@@ -400,7 +418,7 @@ export default class DatmePlugin extends Plugin {
       return void new Notice(`${file.basename} is not published. Use "Publish or unpublish the current note" first.`)
     }
     if (!(await this.ensurePreview())) return
-    window.open(previewUrl(this.settings.port, out?.stdout.trim() || "/"))
+    window.open(previewUrl(this.settings.port, out?.stdout.trim() || "/") + this.previewLook.query())
   }
 
   stopPreview() {

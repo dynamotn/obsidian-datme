@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import {
   ago,
+  explainChrome,
+  explainLayout,
+  explainStyle,
   frontmatterEnd,
   lockVariable,
   propertyChoices,
@@ -167,6 +170,7 @@ describe("garden dashboard", () => {
       stages: [],
       privateLinks: "text",
       preset: undefined,
+      appearance: { style: "notebook", folders: {}, classic: [], tags: {}, stages: {}, languages: {}, schedule: [] },
     })
   })
 
@@ -346,5 +350,49 @@ describe("properties", () => {
     expect(frontmatterEnd(...lines("---\nstyle: x\n...\n"))).toBe(2)
     expect(frontmatterEnd(...lines("body\n---\n"))).toBeUndefined()
     expect(frontmatterEnd(...lines("---\nstyle: x"))).toBeUndefined()
+  })
+})
+
+describe("the look of a note", () => {
+  const now = new Date("2026-10-22T12:00:00Z")
+  const config = gardenConfig({
+    languages: ["vi-VN", "en-US"],
+    stages: { "01_Seeds": "fleeting" },
+    appearance: {
+      style: "classic",
+      folders: { "/Writing/": "manuscript", "Writing/Poems": "zine" },
+      classic: ["Old"],
+      tags: { "#Poem": "herbarium", "essay writing": "wiki" },
+      stages: { "01_Seeds": "garden" },
+      languages: { vi: "lacquer" },
+      schedule: [{ style: "eink", from: "12-20", to: "01-05" }],
+    },
+  })
+  const style = (path: string, fm: Record<string, unknown> = {}, tags: string[] = [], at = now) => explainStyle({ path, fm, tags }, config, at)
+
+  test("a note's own style wins, then its layout's", () => {
+    expect(style("Writing/a.md", { style: "Terminal" })).toEqual({ value: "terminal", rule: "style: in Writing/a.md" })
+    expect(style("Writing/a.md", { layout: "cv" })).toEqual({ value: "resume", rule: "the default of layout: cv" })
+    expect(style("Writing/a.md", { style: "nope", layout: "books" }).rule).toBe("appearance.folders → Writing")
+  })
+
+  test("then appearance: tags (nested ones too), stages, folders (the deepest), days, languages, the site's", () => {
+    expect(style("Writing/a.md", {}, ["#poem/haiku"])).toEqual({ value: "herbarium", rule: "appearance.tags → poem" })
+    expect(style("x.md", {}, ["#Essay-Writing"])).toEqual({ value: "wiki", rule: "appearance.tags → essay-writing" })
+    expect(style("01_Seeds/a.md")).toEqual({ value: "garden", rule: "appearance.stages → 01_Seeds" })
+    expect(style("Writing/Poems/b/a.md")).toEqual({ value: "zine", rule: "appearance.folders → Writing/Poems" })
+    expect(style("Old/a.md")).toEqual({ value: "notebook", rule: "appearance.classic → Old" })
+    expect(style("a.md", {}, [], new Date("2026-12-31"))).toEqual({ value: "eink", rule: "appearance.schedule → 12-20 to 01-05" })
+    expect(style("a.md")).toEqual({ value: "lacquer", rule: "appearance.languages → vi" })
+    expect(style("a.md", { lang: "en-US" })).toEqual({ value: "classic", rule: "appearance.style" })
+  })
+
+  test("the frame and the layout", () => {
+    expect(explainChrome({ path: "a.md", fm: { chrome: "minimal" } })).toEqual({ value: "minimal", rule: "chrome: in a.md" })
+    expect(explainChrome({ path: "a.md", fm: { layout: "faq" } })).toEqual({ value: "full", rule: "the default of layout: faq" })
+    expect(explainChrome({ path: "a.md", fm: { layout: "books" } })).toEqual({ value: "full-norail", rule: "the default of layout: books" })
+    expect(explainChrome({ path: "a.md" })).toEqual({ value: "full", rule: "the default" })
+    expect(explainLayout({ path: "a.md", fm: { layout: " Books " } })).toEqual({ value: "books", rule: "layout: in a.md" })
+    expect(explainLayout({ path: "a.md", fm: { layout: "nope" } })).toEqual({ rule: "no layout:" })
   })
 })

@@ -132,7 +132,7 @@ export class PreviewView extends ItemView {
   }
 
   /** A new look: a style or layout is another address; light, dark and phone width change the page in place. */
-  private lookChanged() {
+  lookChanged() {
     this.frame.toggleClass("is-phone", this.plugin.previewLook.phone)
     if (this.page === undefined || !this.webview) return
     if (this.shown !== this.url()) this.loadPage()

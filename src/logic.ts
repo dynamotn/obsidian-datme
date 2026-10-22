@@ -187,6 +187,50 @@ export interface GardenConfig {
   privateLinks: PrivateLinks
   /** A theme pack (`theme.preset`), which may add styles of its own. */
   preset?: string
+  /** Which style notes get when they name none: `appearance:`. */
+  appearance: Appearance
+}
+
+export interface Appearance {
+  /** The site's style, `notebook` unless set. */
+  style: string
+  /** Style by folder, path without slashes at the ends. */
+  folders: Record<string, string>
+  /** Folders in the other of classic and notebook (the older form of `folders`). */
+  classic: string[]
+  /** Style by tag, without # and in lower case, spaces as dashes. */
+  tags: Record<string, string>
+  stages: Record<string, string>
+  /** Style by language tag or its base (`vi`). */
+  languages: Record<string, string>
+  /** Styles for days of the year, MM-DD to MM-DD, both included. */
+  schedule: { style: string; from: string; to: string }[]
+}
+
+function appearanceOf(raw: unknown): Appearance {
+  const a = record(raw)
+  const styles = (v: unknown) =>
+    Object.fromEntries(Object.entries(record(v)).filter((e): e is [string, string] => typeof e[1] === "string").map(([k, v]) => [k, v.trim().toLowerCase()]))
+  const trimSlashes = (k: string) => k.replace(/^\/+|\/+$/g, "")
+  return {
+    style: typeof a.style === "string" && a.style ? a.style.trim().toLowerCase() : "notebook",
+    folders: Object.fromEntries(Object.entries(styles(a.folders)).map(([k, v]) => [trimSlashes(k), v])),
+    classic: Array.isArray(a.classic) ? a.classic.map((k) => trimSlashes(String(k))) : [],
+    tags: Object.fromEntries(Object.entries(styles(a.tags)).map(([k, v]) => [slugTag(k), v])),
+    stages: styles(a.stages),
+    languages: styles(a.languages),
+    schedule: Array.isArray(a.schedule)
+      ? a.schedule
+          .map(record)
+          .filter((e) => typeof e.style === "string" && typeof e.from === "string" && typeof e.to === "string")
+          .map((e) => ({ style: String(e.style).trim().toLowerCase(), from: String(e.from), to: String(e.to) }))
+      : [],
+  }
+}
+
+/** A tag as datme compares them: without #, in lower case, spaces as dashes. */
+export function slugTag(tag: string): string {
+  return tag.replace(/^#/, "").trim().replace(/\s+/g, "-").toLowerCase()
 }
 
 const DEFAULT_IGNORE = [".git", ".obsidian", ".trash", "node_modules", "private", "templates"]
@@ -214,6 +258,7 @@ export function gardenConfig(parsed: unknown): GardenConfig {
     stages,
     privateLinks: c.privateLinks === "placeholder" || c.privateLinks === "hide" ? c.privateLinks : "text",
     preset: typeof theme.preset === "string" && theme.preset ? theme.preset : undefined,
+    appearance: appearanceOf(c.appearance),
   }
 }
 
@@ -517,4 +562,91 @@ export function propertyProblems(fm: Record<string, unknown> | undefined, config
     if (message) out.push({ key, message })
   }
   return out
+}
+
+/** The style and frame a layout brings, as datme's LAYOUT_LOOKS has them. */
+const LAYOUT_LOOKS: Record<string, { style?: string; frame: string }> = {
+  cv: { style: "resume", frame: "minimal" },
+  links: { style: "classic", frame: "minimal" },
+  gallery: { style: "darkroom", frame: "minimal" },
+  faq: { frame: "full" },
+  decision: { frame: "full" },
+  lore: { frame: "full" },
+}
+
+export interface NoteLook {
+  path: string
+  fm?: Record<string, unknown>
+  /** The note's tags in its order, with or without #. */
+  tags?: string[]
+}
+
+export interface Look {
+  /** The value, or undefined for no layout. */
+  value?: string
+  /** What decided it, in the words of the 🎨 bar. */
+  rule: string
+}
+
+/** The layout of a note: only its own `layout:` sets one. */
+export function explainLayout(note: NoteLook): Look {
+  const layout = note.fm?.layout
+  if (layout != null && LAYOUTS.some((l) => l.value === pick(layout))) return { value: pick(layout), rule: `layout: in ${note.path}` }
+  return { rule: "no layout:" }
+}
+
+/** The frame of a note: its own `chrome:`, the one its layout brings, or the whole frame. */
+export function explainChrome(note: NoteLook): Look {
+  const chrome = note.fm?.chrome
+  if (chrome != null && CHROMES.some((c) => c.value === pick(chrome))) return { value: pick(chrome), rule: `chrome: in ${note.path}` }
+  const layout = explainLayout(note).value
+  if (layout) return { value: LAYOUT_LOOKS[layout]?.frame ?? "full-norail", rule: `the default of layout: ${layout}` }
+  return { value: "full", rule: "the default" }
+}
+
+/**
+ * The style of a note and the rule that gives it, in datme's order: its own
+ * `style:`, its layout's, then `appearance` by tag, stage, folder, day of the
+ * year and language, and last the site's style.
+ */
+export function explainStyle(note: NoteLook, config: GardenConfig, now: Date): Look {
+  const { fm, path } = note
+  const a = config.appearance
+  if (fm?.style != null && (config.preset || STYLES.some((s) => s.value === pick(fm.style)))) return { value: pick(fm.style), rule: `style: in ${path}` }
+  const layout = explainLayout(note).value
+  const fromLayout = layout && LAYOUT_LOOKS[layout]?.style
+  if (fromLayout) return { value: fromLayout, rule: `the default of layout: ${layout}` }
+  for (const tag of note.tags ?? []) {
+    const t = slugTag(tag)
+    const key = Object.keys(a.tags)
+      .filter((k) => t === k || t.startsWith(k + "/"))
+      .sort((x, y) => y.length - x.length)[0]
+    if (key) return { value: a.tags[key], rule: `appearance.tags → ${key}` }
+  }
+  const stage = noteStage(note, config)
+  if (stage && a.stages[stage]) return { value: a.stages[stage], rule: `appearance.stages → ${stage}` }
+  const dir = path.split("/").slice(0, -1).join("/")
+  const under = (f: string) => dir === f || dir.startsWith(f + "/")
+  const folder = Object.keys(a.folders).filter(under).sort((x, y) => y.length - x.length)[0]
+  const classic = a.classic.filter(under).sort((x, y) => y.length - x.length)[0]
+  if (classic !== undefined && (folder === undefined || classic.length > folder.length)) {
+    return { value: a.style === "classic" ? "notebook" : "classic", rule: `appearance.classic → ${classic}` }
+  }
+  if (folder !== undefined) return { value: a.folders[folder], rule: `appearance.folders → ${folder}` }
+  const day = now.toISOString().slice(5, 10)
+  const season = a.schedule.find((s) => (s.from <= s.to ? s.from <= day && day <= s.to : day >= s.from || day <= s.to))
+  if (season) return { value: season.style, rule: `appearance.schedule → ${season.from} to ${season.to}` }
+  const lang = typeof fm?.lang === "string" && config.languages.includes(fm.lang) ? fm.lang : config.languages[0]
+  const langKey = lang in a.languages ? lang : lang.split("-")[0] in a.languages ? lang.split("-")[0] : undefined
+  if (langKey) return { value: a.languages[langKey], rule: `appearance.languages → ${langKey}` }
+  return { value: a.style, rule: "appearance.style" }
+}
+
+/** A note's stage: its `stage:` when datme.yaml has it, else its top folder when that is a stage. */
+export function noteStage(note: NoteLook, config: GardenConfig): string | undefined {
+  const names = config.stages.map((s) => s.name)
+  const own = note.fm?.stage
+  if (typeof own === "string" && names.includes(own)) return own
+  const top = note.path.includes("/") ? note.path.split("/")[0] : undefined
+  return top && names.includes(top) ? top : undefined
 }
