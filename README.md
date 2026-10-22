@@ -1,6 +1,6 @@
 # datme for Obsidian
 
-A companion plugin for [datme](https://gitlab.com/dynamo-tools/datme): tend
+A companion plugin for [datme](https://gitlab.com/dynamo-brain/datme): tend
 your digital garden without leaving Obsidian.
 
 - **🌱 Published / 🔒 Private** in the status bar shows whether datme publishes
