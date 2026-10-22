@@ -311,7 +311,8 @@ export default class DatmePlugin extends Plugin {
   tendingChanged = debounce(
     () => {
       if (this.tendEl) tendingStatus(this, this.tendEl)
-      for (const leaf of this.app.workspace.getLeavesOfType(DASHBOARD_VIEW)) (leaf.view as DashboardView).refresh()
+      // A pane not shown since Obsidian started is a stand-in until it loads, and draws itself then.
+      for (const leaf of this.app.workspace.getLeavesOfType(DASHBOARD_VIEW)) if (leaf.view instanceof DashboardView) leaf.view.refresh()
     },
     1000,
     true,
@@ -582,7 +583,8 @@ export default class DatmePlugin extends Plugin {
     const open = this.app.workspace.getLeavesOfType(PREVIEW_VIEW)[0]
     if (open) {
       void this.app.workspace.revealLeaf(open)
-      return void (open.view as PreviewView).showActive()
+      if (open.view instanceof PreviewView) void open.view.showActive()
+      return
     }
     const leaf = this.app.workspace.getLeaf("split", "vertical")
     await leaf.setViewState({ type: PREVIEW_VIEW, active: false })
@@ -592,7 +594,7 @@ export default class DatmePlugin extends Plugin {
   /** The preview panes show the look chosen in a toolbar, or in *Set style…*. */
   previewLookChanged() {
     this.previewLook.sync()
-    for (const leaf of this.app.workspace.getLeavesOfType(PREVIEW_VIEW)) (leaf.view as PreviewView).lookChanged()
+    for (const leaf of this.app.workspace.getLeavesOfType(PREVIEW_VIEW)) if (leaf.view instanceof PreviewView) leaf.view.lookChanged()
   }
 
   /** Start `datme dev` unless it runs already, and wait until it answers. */

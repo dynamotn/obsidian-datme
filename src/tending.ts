@@ -52,7 +52,11 @@ export function renderTending(plugin: DatmePlugin, el: HTMLElement, openNote: (p
     const button = (icon: string, label: string, how: "snooze" | "done") => {
       const b = actions.createEl("button", { cls: "clickable-icon", attr: { "aria-label": label } })
       setIcon(b, icon)
-      b.addEventListener("click", () => void mark(plugin, item, how, queue))
+      // The row goes at once: the dashboard is drawn again only a moment later.
+      b.addEventListener("click", () => {
+        li.remove()
+        void mark(plugin, item, how, queue)
+      })
     }
     button("alarm-clock", `Snooze for ${SNOOZE_DAYS} days`, "snooze")
     button("check", "Done: I tended it", "done")

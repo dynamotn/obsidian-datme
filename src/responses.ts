@@ -9,7 +9,7 @@
  * when giscus finds discussions by title. Nothing is sent but the page's address.
  */
 import { debounce, ItemView, Notice, requestUrl, setIcon, type TFile, type WorkspaceLeaf } from "obsidian"
-import { ago, safeUrl, giscusTerm, mentionCounts, mentionTargets, pageTitles, parseGiscus, parseMentions, responseLine, type Response } from "./logic"
+import { ago, safeUrl, giscusTerms, mentionCounts, mentionTargets, pageTitles, parseGiscus, parseMentions, responseLine, type Response } from "./logic"
 import type DatmePlugin from "./main"
 
 export const RESPONSES_VIEW = "datme-responses"
@@ -68,13 +68,19 @@ export async function fetchResponses(plugin: DatmePlugin, url: string): Promise<
           if (page.status !== 200) throw new Error(`the page answered ${page.status}, so its title is unknown`)
           titles = pageTitles(page.text)
         }
-        const term = giscusTerm(giscus.mapping, url, titles)
-        if (!term) throw new Error("the page has no title to look its discussion up by")
-        const params = new URLSearchParams({ repo: giscus.repo, term, category: giscus.category, number: "0", strict: "true", last: "50" })
-        const { status, json } = await getJson(`https://giscus.app/api/discussions?${params}`)
-        // No discussion yet: nobody commented.
-        if (status === 404) return void (out.comments = [])
-        if (status !== 200) throw new Error(`giscus answered ${status}`)
+        const terms = giscusTerms(giscus.mapping, url, titles)
+        if (!terms.length) throw new Error("the page has no title to look its discussion up by")
+        let json: unknown
+        for (const term of terms) {
+          const params = new URLSearchParams({ repo: giscus.repo, term, category: giscus.category, number: "0", strict: "true", last: "50" })
+          const res = await getJson(`https://giscus.app/api/discussions?${params}`)
+          if (res.status === 404) continue
+          if (res.status !== 200) throw new Error(`giscus answered ${res.status}`)
+          json = res.json
+          break
+        }
+        // No discussion under any term: nobody commented yet.
+        if (json === undefined) return void (out.comments = [])
         const found = parseGiscus(json)
         out.comments = found.responses
         out.discussion = { url: found.url, reactions: found.reactions }

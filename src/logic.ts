@@ -1047,6 +1047,20 @@ export function giscusTerm(mapping: NonNullable<Responses["giscus"]>["mapping"],
   return path.length < 2 ? "index" : path.substring(1).replace(/\.\w+$/, "")
 }
 
+/**
+ * The terms to try for a page's discussion, the likeliest first. A host that
+ * serves pages as folders sends readers from `/a` to `/a/`, and giscus then
+ * saw the path with its slash, as datme asks webmention.io for both.
+ */
+export function giscusTerms(mapping: NonNullable<Responses["giscus"]>["mapping"], url: string, titles?: { title?: string; ogTitle?: string }): string[] {
+  const term = giscusTerm(mapping, url, titles)
+  if (term === undefined) return []
+  if (mapping !== "pathname" && mapping !== "url") return [term]
+  if (term === "index") return [term]
+  const bare = term.replace(/\/+$/, "")
+  return [...new Set([term, bare === term ? term + "/" : bare])]
+}
+
 /** The <title> and og:title of a page's HTML. */
 export function pageTitles(html: string): { title?: string; ogTitle?: string } {
   const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1]

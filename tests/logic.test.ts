@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   ago,
+  giscusTerms,
   safeUrl,
   giscusTerm,
   mentionCounts,
@@ -662,5 +663,16 @@ describe("addresses readers send", () => {
     const g = parseGiscus({ discussion: { url: "javascript:z", comments: [{ author: { login: "eve", url: "javascript:a" }, url: "javascript:b", createdAt: "2026-10-01" }] } })
     expect(g.url).toBeUndefined()
     expect(g.responses[0]).toMatchObject({ author: { url: undefined }, url: undefined })
+  })
+})
+
+describe("finding a page's giscus discussion", () => {
+  test("with and without the slash a host adds, the likeliest first", () => {
+    expect(giscusTerms("pathname", "https://notes.example/cv")).toEqual(["cv", "cv/"])
+    expect(giscusTerms("pathname", "https://notes.example/Folder/")).toEqual(["Folder/", "Folder"])
+    expect(giscusTerms("pathname", "https://notes.example/")).toEqual(["index"])
+    expect(giscusTerms("url", "https://notes.example/cv")).toEqual(["https://notes.example/cv", "https://notes.example/cv/"])
+    expect(giscusTerms("og:title", "https://notes.example/cv", { ogTitle: "CV" })).toEqual(["CV"])
+    expect(giscusTerms("title", "https://notes.example/cv")).toEqual([])
   })
 })
