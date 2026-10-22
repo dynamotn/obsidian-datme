@@ -1168,3 +1168,17 @@ export function pipelineSchedule(files: { path: string; text: string }[]): Pipel
 /** The files pipelineSchedule reads, at the root of the vault. */
 export const PIPELINE_FILES = [".gitlab-ci.yml", "netlify.toml"]
 export const WORKFLOW_DIR = ".github/workflows"
+
+/**
+ * What `datme url` answered: the page path, that datme does not publish the
+ * note (its own words, `"Note.md" is not published.`), or that the command
+ * failed, with the line saying why.
+ */
+export function urlAnswer(out: { code: number; stdout: string; stderr: string }): { path: string } | { unpublished: true } | { error: string } {
+  if (out.code === 0) return { path: out.stdout.trim().split("\n").pop()?.trim() || "/" }
+  const text = `${out.stderr}\n${out.stdout}`
+  if (/" is not published\./.test(text)) return { unpublished: true }
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean)
+  const why = lines.find((l) => /^(\w*Error|error):/.test(l)) ?? lines.find((l) => !/^at\s/.test(l) && !/^\^+$/.test(l)) ?? `datme exited with ${out.code}`
+  return { error: why.length > 300 ? why.slice(0, 300) + "…" : why }
+}

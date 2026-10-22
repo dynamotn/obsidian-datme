@@ -44,6 +44,7 @@ import {
   propertyProblems,
   publicUrl,
   textFragment,
+  urlAnswer,
   relatedWhy,
   splitCommand,
   summary,
@@ -574,8 +575,9 @@ export default class DatmePlugin extends Plugin {
    * when datme does not publish it. Throws when the command cannot run.
    */
   async pagePath(file: TFile): Promise<string | undefined> {
-    const out = await this.run(["url", file.path, this.vaultPath()])
-    return out.code === 0 ? out.stdout.trim().split("\n").pop()?.trim() || "/" : undefined
+    const answer = urlAnswer(await this.run(["url", file.path, this.vaultPath()]))
+    if ("error" in answer) throw new Error(answer.error)
+    return "path" in answer ? answer.path : undefined
   }
 
   /** The preview pane, beside the note; the browser where Obsidian cannot embed pages. */
@@ -629,12 +631,19 @@ export default class DatmePlugin extends Plugin {
 
   async openPreview() {
     const file = this.app.workspace.getActiveFile()
-    const out = file ? await this.run(["url", file.path, this.vaultPath()]).catch(() => undefined) : undefined
-    if (file && out && out.code !== 0) {
-      return void new Notice(`${file.basename} is not published. Use "Publish or unpublish the current note" first.`)
+    let page = "/"
+    if (file?.extension === "md") {
+      let path: string | undefined
+      try {
+        path = await this.pagePath(file)
+      } catch (e) {
+        return void new Notice(`datme could not run: ${(e as Error).message}. Is the command right in the settings?`, 10000)
+      }
+      if (path === undefined) return void new Notice(`${file.basename} is not published. Use "Publish or unpublish the current note" first.`)
+      page = path
     }
     if (!(await this.ensurePreview())) return
-    window.open(previewUrl(this.settings.port, out?.stdout.trim() || "/") + this.previewLook.query())
+    window.open(previewUrl(this.settings.port, page) + this.previewLook.query())
   }
 
   stopPreview() {

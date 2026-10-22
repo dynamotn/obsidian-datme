@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   ago,
+  urlAnswer,
   pipelineSchedule,
   scheduleCalendar,
   giscusTerms,
@@ -725,5 +726,29 @@ describe("deploy pipeline schedule", () => {
     expect(pipelineSchedule([{ path: "netlify.toml", text: "[build]\n" }]).kind).toBe("none")
     expect(pipelineSchedule([]).kind).toBe("unknown")
     expect(pipelineSchedule([]).file).toBeUndefined()
+  })
+})
+
+describe("what datme url answered", () => {
+  test("a page path, the last line it printed", () => {
+    expect(urlAnswer({ code: 0, stdout: "Loading…\n/A/b\n", stderr: "" })).toEqual({ path: "/A/b" })
+    expect(urlAnswer({ code: 0, stdout: "", stderr: "" })).toEqual({ path: "/" })
+  })
+
+  test("a note datme does not publish, in its own words", () => {
+    expect(urlAnswer({ code: 1, stdout: "", stderr: '"A/b.md" is not published.\n' })).toEqual({ unpublished: true })
+  })
+
+  test("a command that failed is no private note: the error says why", () => {
+    const stderr = [
+      "node:internal/modules/esm/resolve:205",
+      "  const resolvedOption = FSLegacyMainResolve(pkgPath, packageConfig.main, baseStringified);",
+      "                         ^",
+      "",
+      "Error: Cannot find package '/tmp/bunx/node_modules/@marp-team/marp-core/index.js' imported from /tmp/bunx/datme.js",
+      "    at legacyMainResolve (node:internal/modules/esm/resolve:205:26)",
+    ].join("\n")
+    expect(urlAnswer({ code: 1, stdout: "", stderr })).toEqual({ error: "Error: Cannot find package '/tmp/bunx/node_modules/@marp-team/marp-core/index.js' imported from /tmp/bunx/datme.js" })
+    expect(urlAnswer({ code: 127, stdout: "", stderr: "" })).toEqual({ error: "datme exited with 127" })
   })
 })
