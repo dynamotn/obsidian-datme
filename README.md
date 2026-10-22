@@ -58,6 +58,14 @@ your digital garden without leaving Obsidian.
   hides it for a month, *Done* counts as tending it: it comes back once it is
   old again, or once a newer check still finds it. The status bar can count
   them too (*3 notes to tend*), off by default.
+- **Show readers' responses to the current note** opens a pane with what
+  readers answered: its webmentions (likes and reposts counted, replies and
+  mentions in full, the fediverse's and Bluesky's through Bridgy) when
+  `datme.yaml` has `webmentions:`, and its giscus comments when it has
+  `comments: { provider: giscus }`, newest first, each with a link to answer
+  it where it lives. It follows the active note. With the token of your
+  webmention.io account, the dashboard also lists the notes readers answer
+  most, and the plugin can show a notice for each new webmention.
 - **Preview the current note** (also the 🌱 ribbon button) starts `datme dev`
   if it isn't running, then shows the note's page on `localhost` in a pane
   beside the editor. The pane follows the note you open, reloads when the vault
@@ -89,6 +97,7 @@ The plugin also runs in Obsidian on mobile, with what needs no command:
   plugin as datme does;
 - suggesting and checking datme's properties in the frontmatter, and *Set
   style…* / *Set layout…*;
+- readers' responses to a note;
 - the garden dashboard, its Tend list included, without the link to the
   current note;
 - the last check report. Each check on a computer saves it in
@@ -127,7 +136,25 @@ instead.
 - **Mark links to private notes**: on by default.
 - **Notes to tend in the status bar**: off by default.
 - **Days before a fleeting note asks to be tended**: 90 by default.
+- **webmention.io token** (Obsidian 1.11.4 or later): the name of a secret in
+  Obsidian's secret storage holding your webmention.io token. The token stays
+  out of the vault and its settings.
+- **Tell me of new responses**: off by default; every 30 minutes with the token.
 - **Show notices**: also list links to unpublished notes in the check report.
+
+## Network
+
+The plugin goes online only for readers' responses, and only when you open
+their pane, the dashboard with a token, or turn on the notices:
+
+- `webmention.io` gets the note's address (`api/mentions.jf2?target[]=…`), or
+  your token for the whole account;
+- `giscus.app` gets your discussions repository, category and the page's
+  term (`api/discussions`), as the comment widget on your site does;
+- your own site, when giscus finds discussions by `title` or `og:title`: the
+  plugin reads the page's title there.
+
+Everything else runs in the vault or through the datme command.
 
 ## Development
 

@@ -112,3 +112,32 @@
   top: 0;
   display: flex;
 }
+
+/* Readers' responses. */
+.datme-responses-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.datme-responses {
+  padding-inline-start: 0;
+  list-style: none;
+}
+
+.datme-responses li {
+  margin-block-end: var(--size-4-3);
+}
+
+.datme-response-text {
+  white-space: pre-line;
+  margin-block: var(--size-2-2);
+}
+
+.datme-response-reply {
+  font-size: var(--font-ui-smaller);
+}
+
+.datme-responses-error {
+  color: var(--text-warning);
+}

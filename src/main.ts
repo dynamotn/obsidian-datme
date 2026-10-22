@@ -18,6 +18,7 @@ import {
   Plugin,
   PluginSettingTab,
   requestUrl,
+  SecretComponent,
   Setting,
   TFile,
   TFolder,
@@ -61,6 +62,7 @@ import { LookModal, type LookKey } from "./pick"
 import { markRenderedLinks, privateLinkMarker } from "./private-links"
 import { ScheduleModal, unschedule } from "./schedule"
 import { renderTending, tendingStatus } from "./tending"
+import { RESPONSES_VIEW, ResponsesView, ResponseWatcher } from "./responses"
 
 const SUGGESTIONS_VIEW = "datme-suggestions"
 const DASHBOARD_VIEW = "datme-dashboard"
@@ -97,6 +99,12 @@ interface Settings {
   staleDays: number
   /** What was snoozed or done in the tending queue. */
   tend: TendState
+  /** The name of the webmention.io token in Obsidian's secret storage; never the token. */
+  webmentionToken: string
+  /** A notice when a new webmention comes, with the token. */
+  notifyResponses: boolean
+  /** The newest webmention seen, to tell new ones. */
+  lastMentionId: number
 }
 
 const DEFAULTS: Settings = { command: "bunx @dynamotn/datme", port: 4321, showNotices: false, saveReport: true, explorerBadges: true,
@@ -104,6 +112,9 @@ const DEFAULTS: Settings = { command: "bunx @dynamotn/datme", port: 4321, showNo
   tendCount: false,
   staleDays: 90,
   tend: { snoozed: {}, done: {} },
+  webmentionToken: "",
+  notifyResponses: false,
+  lastMentionId: 0,
 }
 
 export default class DatmePlugin extends Plugin {
@@ -117,6 +128,7 @@ export default class DatmePlugin extends Plugin {
   /** How the preview pane shows pages: light or dark, phone width, style and layout. */
   previewLook = new PreviewLook()
   explorer = new ExplorerBadges(this)
+  responses = new ResponseWatcher(this)
   /** The state each note had when last seen, to tell when it changes. */
   private states = new Map<string, string>()
 
@@ -249,6 +261,9 @@ export default class DatmePlugin extends Plugin {
     this.addCommand({ id: "check", name: "Check the garden for problems", callback: () => void (desktop ? this.check() : this.showSavedReport()) })
     this.addCommand({ id: "last-report", name: "Show the last saved check report", callback: () => void this.showSavedReport() })
     this.registerView(DASHBOARD_VIEW, (leaf) => new DashboardView(leaf, this))
+    this.registerView(RESPONSES_VIEW, (leaf) => new ResponsesView(leaf, this))
+    this.addCommand({ id: "responses", name: "Show readers' responses to the current note", callback: () => void this.openView(RESPONSES_VIEW) })
+    this.app.workspace.onLayoutReady(() => this.responses.start())
     this.addCommand({ id: "dashboard", name: "Open the garden dashboard", callback: () => void this.openView(DASHBOARD_VIEW) })
     if (desktop) {
       this.registerView(PREVIEW_VIEW, (leaf) => new PreviewView(leaf, this))
@@ -288,6 +303,7 @@ export default class DatmePlugin extends Plugin {
 
   override onunload() {
     this.stopPreview()
+    this.responses.stop()
     for (const el of Array.from(document.querySelectorAll(".datme-badge"))) el.remove()
   }
 
@@ -303,6 +319,7 @@ export default class DatmePlugin extends Plugin {
 
   /** What follows datme.yaml once it was read again. */
   private configChanged() {
+    this.responses.start()
     this.updateStatus()
     this.explorer.refresh()
     // Editors underline frontmatter values and mark links against the new config.
@@ -426,14 +443,46 @@ export default class DatmePlugin extends Plugin {
       const why = state === "draft" ? "is a draft" : state === "scheduled" ? `is published on ${date}` : "is not published"
       return void new Notice(`${file.basename} ${why}, so it has no public link yet.`, 5000)
     }
-    const path = (await this.noteUrl(file)) ?? notePath(file.path, fm, this.config)
-    const url = publicUrl(this.config.url, path) + (passage ? textFragment(passage) : "")
+    const url = (await this.liveUrl(file))! + (passage ? textFragment(passage) : "")
     try {
       await navigator.clipboard.writeText(url)
     } catch {
       return void new Notice(`datme could not copy the link: ${url}`, 10000)
     }
     new Notice(`🔗 Copied ${url}`)
+  }
+
+  /**
+   * A note's address on the live site, or undefined when it has none: no
+   * site.url, or a note datme does not publish today. The path comes from
+   * `datme url` on the desktop, and from the plugin's own rules otherwise.
+   */
+  async liveUrl(file: TFile): Promise<string | undefined> {
+    if (!this.config.url) return undefined
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter
+    if (noteState(fm, this.mode, new Date()).state !== "published" || isIgnored(file.path, this.config)) return undefined
+    const path = (await this.noteUrl(file)) ?? notePath(file.path, fm, this.config)
+    return publicUrl(this.config.url, path)
+  }
+
+  /** The published notes by their address on the site, without a trailing slash, as the plugin works it out. */
+  notesByUrl(): Map<string, TFile> {
+    const out = new Map<string, TFile>()
+    if (!this.config.url) return out
+    const now = new Date()
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter
+      if (noteState(fm, this.mode, now).state !== "published" || isIgnored(file.path, this.config)) continue
+      out.set(publicUrl(this.config.url, notePath(file.path, fm, this.config)).replace(/\/+$/, ""), file)
+    }
+    return out
+  }
+
+  /** What to call the page at an address in a notice: its note's name, or the address. */
+  titleOfUrl(url: string | undefined): string {
+    if (!url) return "a page"
+    const key = url.split("#")[0].replace(/\/+$/, "")
+    return this.notesByUrl().get(key)?.basename ?? decodeURI(key.replace(/^https?:\/\/[^/]+/, "") || "/")
   }
 
   /** Related notes and unlinked mentions of a note, from `datme related`. */
@@ -813,6 +862,18 @@ class DashboardView extends ItemView {
 
     renderTending(this.plugin, el, (parent, path) => this.noteLink(parent, path))
 
+    // With a webmention.io token: which notes readers answer most.
+    if (this.plugin.responses.enabled) {
+      el.createEl("h4", { text: "Responses" })
+      const counts = await this.plugin.responses.refresh()
+      const byUrl = this.plugin.notesByUrl()
+      const top = [...(counts ?? [])].filter(([url]) => byUrl.has(url)).sort((a, b) => b[1] - a[1]).slice(0, 10)
+      if (!counts) el.createEl("p", { cls: "u-muted", text: "webmention.io could not be reached." })
+      else if (!top.length) el.createEl("p", { cls: "u-muted", text: "No webmentions yet." })
+      const list = el.createEl("ul")
+      for (const [url, n] of top) this.noteLink(list.createEl("li", { text: `💬 ${n} · ` }), byUrl.get(url)!.path)
+    }
+
     if (config.url) {
       el.createEl("h4", { text: "On the web" })
       const links = el.createEl("ul")
@@ -950,6 +1011,29 @@ class DatmeSettings extends PluginSettingTab {
           }
         }),
       )
+    // Obsidian keeps secrets apart from the vault since 1.11.4; the setting holds only the secret's name.
+    if (this.app.secretStorage && typeof SecretComponent === "function") {
+      new Setting(containerEl)
+        .setName("webmention.io token")
+        .setDesc("Optional. With the token of your webmention.io account, the dashboard counts responses by note and the plugin can tell you of new ones. It stays in Obsidian's secret storage, out of the vault.")
+        .addComponent((el) =>
+          new SecretComponent(this.app, el).setValue(this.plugin.settings.webmentionToken).onChange(async (v) => {
+            this.plugin.settings.webmentionToken = v
+            await this.plugin.saveSettings()
+            this.plugin.responses.start()
+          }),
+        )
+      new Setting(containerEl)
+        .setName("Tell me of new responses")
+        .setDesc("Every 30 minutes, ask webmention.io for new webmentions and show a notice for each. Needs the token.")
+        .addToggle((t) =>
+          t.setValue(this.plugin.settings.notifyResponses).onChange(async (v) => {
+            this.plugin.settings.notifyResponses = v
+            await this.plugin.saveSettings()
+            this.plugin.responses.start()
+          }),
+        )
+    }
     new Setting(containerEl)
       .setName("Show notices")
       .setDesc("Also list notices in the check report: links to unpublished notes, scheduled notes, orphans, dead ends and hubs.")

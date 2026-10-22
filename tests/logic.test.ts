@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test"
 import {
   ago,
+  giscusTerm,
+  mentionCounts,
+  mentionTargets,
+  pageTitles,
+  parseGiscus,
+  parseMentions,
+  plainText,
+  responseLine,
+  type Response,
   prunedTendState,
   stillToTend,
   tendingQueue,
@@ -543,5 +552,91 @@ describe("tending queue", () => {
     expect(updatedAt({ updated: "2026-01-02" }, 5)).toBe(new Date("2026-01-02").getTime())
     expect(updatedAt({ modified: ["2026-10-22T21:14"] }, 5)).toBe(new Date("2026-10-22T21:14").getTime())
     expect(updatedAt({ lastmod: "not a date" }, 5)).toBe(5)
+  })
+})
+
+describe("readers' responses", () => {
+  test("the responses settings of datme.yaml: webmention.io's account and giscus", () => {
+    expect(gardenConfig({ site: { url: "https://notes.example/g" }, webmentions: {} }).responses).toEqual({ webmentions: "notes.example" })
+    expect(gardenConfig({ site: { url: "https://notes.example" }, webmentions: { domain: "me.example" } }).responses.webmentions).toBe("me.example")
+    expect(gardenConfig({ site: { url: "https://notes.example" } }).responses).toEqual({})
+    expect(gardenConfig({ comments: { provider: "giscus", repo: "me/garden", category: "Notes", mapping: "og:title" } }).responses.giscus).toEqual({
+      repo: "me/garden",
+      category: "Notes",
+      mapping: "og:title",
+    })
+    expect(gardenConfig({ comments: { provider: "giscus", repo: "me/garden", category: "Notes" } }).responses.giscus?.mapping).toBe("pathname")
+    expect(gardenConfig({ comments: { provider: "commento" } }).responses.giscus).toBeUndefined()
+  })
+
+  test("webmentions, one per property and source, newest first, the fediverse marked", () => {
+    const json = {
+      children: [
+        { "wm-property": "like-of", url: "https://a.example/like", author: { name: "Ann", url: "https://a.example" }, "wm-received": "2026-10-01T00:00:00Z", "wm-id": 1 },
+        { "wm-property": "like-of", url: "https://a.example/like", author: { name: "Ann" }, "wm-received": "2026-10-01T00:00:00Z", "wm-id": 2 },
+        {
+          "wm-property": "in-reply-to",
+          url: "https://mastodon.social/@bo/1",
+          "wm-source": "https://brid.gy/comment/mastodon/@me@x/1/2",
+          author: { name: "Bo" },
+          published: "2026-10-05T00:00:00Z",
+          content: { html: "<p>Nice &amp; <b>true</b></p>", text: "Nice & true" },
+          "wm-id": 3,
+          "wm-target": "https://notes.example/A/b",
+        },
+        { "wm-property": "rsvp", url: "https://c.example" },
+        { "wm-property": "mention-of", url: "https://d.example/post", author: {}, content: { value: "<p>see this</p>" } },
+      ],
+    }
+    const r = parseMentions(json)
+    expect(r.map((x) => `${x.kind} ${x.author.name}`)).toEqual(["reply Bo", "like Ann", "mention d.example"])
+    expect(r[0]).toMatchObject({ text: "Nice & true", via: "Bridgy", id: 3, target: "https://notes.example/A/b" })
+    expect(r[2].text).toBe("see this")
+    expect(parseMentions({ error: "x" })).toEqual([])
+  })
+
+  test("giscus comments and their replies, newest first, deleted and hidden ones left out", () => {
+    const json = {
+      discussion: {
+        url: "https://github.com/me/garden/discussions/7",
+        reactionCount: 4,
+        comments: [
+          {
+            author: { login: "ann", url: "https://github.com/ann" },
+            bodyHTML: "<p>First</p>",
+            createdAt: "2026-10-01T00:00:00Z",
+            url: "https://github.com/me/garden/discussions/7#c1",
+            replies: [{ author: { login: "me" }, bodyHTML: "<p>Thanks</p>", createdAt: "2026-10-03T00:00:00Z" }],
+          },
+          { author: { login: "spam" }, bodyHTML: "x", createdAt: "2026-10-04T00:00:00Z", isMinimized: true },
+        ],
+      },
+    }
+    const g = parseGiscus(json)
+    expect(g.url).toBe("https://github.com/me/garden/discussions/7")
+    expect(g.reactions).toBe(4)
+    expect(g.responses.map((r) => `${r.author.name}: ${r.text}`)).toEqual(["me: Thanks", "ann: First"])
+    expect(parseGiscus({ error: "Discussion not found" }).responses).toEqual([])
+  })
+
+  test("the term giscus finds a page's discussion by", () => {
+    expect(giscusTerm("pathname", "https://notes.example/A/%C4%90%E1%BB%93")).toBe("A/%C4%90%E1%BB%93")
+    expect(giscusTerm("pathname", "https://notes.example/")).toBe("index")
+    expect(giscusTerm("url", "https://notes.example/A/b#x")).toBe("https://notes.example/A/b")
+    expect(giscusTerm("og:title", "https://notes.example/A/b", { ogTitle: "B" })).toBe("B")
+    expect(giscusTerm("title", "https://notes.example/A/b")).toBeUndefined()
+    expect(pageTitles('<head><title>B · My &amp; garden</title><meta property="og:title" content="B"></head>')).toEqual({ title: "B · My & garden", ogTitle: "B" })
+  })
+
+  test("webmention.io knows a page with and without its trailing slash; counts go by page", () => {
+    expect(mentionTargets("https://notes.example/A/b")).toEqual(["https://notes.example/A/b", "https://notes.example/A/b/"])
+    expect(mentionTargets("https://notes.example/")).toEqual(["https://notes.example", "https://notes.example/"])
+    const counts = mentionCounts([{ target: "https://n.example/A/b/" }, { target: "https://n.example/A/b" }, { target: "https://n.example/c#x" }, {}] as Response[])
+    expect([...counts]).toEqual([
+      ["https://n.example/A/b", 2],
+      ["https://n.example/c", 1],
+    ])
+    expect(plainText("<p>a<br>b</p><p>&lt;c&gt; &#39;d&#39;</p>")).toBe("a\nb\n<c> 'd'")
+    expect(responseLine({ source: "webmention", kind: "repost", author: { name: "Bo" }, via: "Bridgy" }, "Gardens")).toBe("Bo reposted Gardens (via Bridgy)")
   })
 })

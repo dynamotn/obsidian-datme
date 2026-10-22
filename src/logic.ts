@@ -909,3 +909,159 @@ export function prunedTendState(state: TendState, items: TendItem[], now: number
     done: Object.fromEntries(Object.entries(state.done).filter(([k]) => live.has(k))),
   }
 }
+
+export interface Response {
+  /** Where it comes from, and what it is. */
+  source: "webmention" | "giscus"
+  kind: "like" | "repost" | "reply" | "mention" | "comment"
+  author: { name: string; url?: string; photo?: string }
+  /** Where to read it, and answer it. */
+  url?: string
+  /** When it was written, or received. */
+  at?: number
+  /** Its words, as plain text. */
+  text?: string
+  /** Through what it came, when not straight from the writer's site: "Bridgy" for the fediverse and Bluesky. */
+  via?: string
+  /** For a webmention, its id at webmention.io, for telling new ones. */
+  id?: number
+  /** The page it answers. */
+  target?: string
+}
+
+/** Text without markup, for showing what a reader wrote; the HTML is never put on the page. */
+export function plainText(html: string): string {
+  return html
+    .replace(/<(br|\/p|\/div|\/li)\s*\/?>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n: string) => String.fromCodePoint(Number(n)))
+    .replace(/&amp;/g, "&")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s*\n+/g, "\n")
+    .trim()
+}
+
+const WM_KINDS: Record<string, Response["kind"]> = {
+  "like-of": "like",
+  "bookmark-of": "like",
+  "repost-of": "repost",
+  "in-reply-to": "reply",
+  "mention-of": "mention",
+}
+
+/** The webmentions of webmention.io's `mentions.jf2`, one per property and source as datme counts them, newest first. */
+export function parseMentions(json: unknown): Response[] {
+  const seen = new Set<string>()
+  const out: Response[] = []
+  for (const c of Array.isArray(record(json).children) ? (record(json).children as unknown[]).map(record) : []) {
+    const property = String(c["wm-property"] ?? "")
+    const kind = WM_KINDS[property]
+    if (!kind) continue
+    const key = `${property}|${String(c.url ?? c["wm-source"] ?? "")}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const author = record(c.author)
+    const content = record(c.content)
+    const text = typeof content.text === "string" ? content.text : typeof content.value === "string" ? plainText(content.value) : typeof content.html === "string" ? plainText(content.html) : undefined
+    const source = String(c["wm-source"] ?? "")
+    const str = (v: unknown) => (typeof v === "string" && v ? v : undefined)
+    out.push({
+      source: "webmention",
+      kind,
+      author: { name: str(author.name) ?? hostOf(str(author.url) ?? str(c.url)) ?? "Someone", url: str(author.url), photo: str(author.photo) },
+      url: str(c.url) ?? str(source),
+      at: fmDate(c.published) ?? fmDate(c["wm-received"]),
+      text: text?.trim() || undefined,
+      via: /\bbrid\.gy\b/.test(source) ? "Bridgy" : undefined,
+      id: typeof c["wm-id"] === "number" ? c["wm-id"] : undefined,
+      target: str(c["wm-target"]),
+    })
+  }
+  return out.sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
+}
+
+function hostOf(url: string | undefined): string | undefined {
+  try {
+    return url ? new URL(url).host : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** The comments and replies of a giscus discussion, newest first, and the discussion's own address. */
+export function parseGiscus(json: unknown): { url?: string; responses: Response[]; reactions: number } {
+  const d = record(record(json).discussion)
+  const out: Response[] = []
+  const add = (c: Record<string, unknown>) => {
+    if (c.deletedAt || c.isMinimized) return
+    const author = record(c.author)
+    out.push({
+      source: "giscus",
+      kind: "comment",
+      author: { name: typeof author.login === "string" ? author.login : "Someone", url: typeof author.url === "string" ? author.url : undefined, photo: typeof author.avatarUrl === "string" ? author.avatarUrl : undefined },
+      url: typeof c.url === "string" ? c.url : undefined,
+      at: fmDate(c.createdAt),
+      text: typeof c.bodyHTML === "string" ? plainText(c.bodyHTML) || undefined : undefined,
+    })
+  }
+  for (const c of Array.isArray(d.comments) ? (d.comments as unknown[]).map(record) : []) {
+    add(c)
+    for (const r of Array.isArray(c.replies) ? (c.replies as unknown[]).map(record) : []) add(r)
+  }
+  return {
+    url: typeof d.url === "string" ? d.url : undefined,
+    responses: out.sort((a, b) => (b.at ?? 0) - (a.at ?? 0)),
+    reactions: typeof d.reactionCount === "number" ? d.reactionCount : 0,
+  }
+}
+
+/**
+ * The term giscus looks a page's discussion up by, as its widget makes it:
+ * the path without its leading slash (or "index"), the address, or a title,
+ * which only the page itself knows.
+ */
+export function giscusTerm(mapping: NonNullable<Responses["giscus"]>["mapping"], url: string, titles?: { title?: string; ogTitle?: string }): string | undefined {
+  if (mapping === "url") return url.split("#")[0]
+  if (mapping === "title") return titles?.title
+  if (mapping === "og:title") return titles?.ogTitle
+  const path = new URL(url).pathname
+  return path.length < 2 ? "index" : path.substring(1).replace(/\.\w+$/, "")
+}
+
+/** The <title> and og:title of a page's HTML. */
+export function pageTitles(html: string): { title?: string; ogTitle?: string } {
+  const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1]
+  const og =
+    /<meta[^>]+property=["']og:title["'][^>]*content=["']([^"']*)["']/i.exec(html)?.[1] ??
+    /<meta[^>]+content=["']([^"']*)["'][^>]*property=["']og:title["']/i.exec(html)?.[1]
+  const clean = (s?: string) => (s === undefined ? undefined : plainText(s))
+  return { title: clean(title), ogTitle: clean(og) }
+}
+
+/** The addresses webmention.io knows a page by: datme asks with and without a trailing slash. */
+export function mentionTargets(url: string): string[] {
+  const bare = url.replace(/\/+$/, "")
+  return bare === url ? [url, url + "/"] : [bare, url]
+}
+
+/** How many webmentions each page has, by its address without a trailing slash, from a whole account's mentions. */
+export function mentionCounts(responses: Response[]): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const r of responses) {
+    if (!r.target) continue
+    const key = r.target.split("#")[0].replace(/\/+$/, "")
+    out.set(key, (out.get(key) ?? 0) + 1)
+  }
+  return out
+}
+
+/** A response in a few words, for a notice. */
+export function responseLine(r: Response, title: string): string {
+  const what = { like: "liked", repost: "reposted", reply: "replied to", mention: "mentioned", comment: "commented on" }[r.kind]
+  return `${r.author.name} ${what} ${title}${r.via ? ` (via ${r.via})` : ""}`
+}
