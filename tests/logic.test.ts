@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import {
   ago,
+  frontmatterEnd,
+  lockVariable,
+  propertyChoices,
+  propertyLine,
+  propertyProblem,
+  propertyProblems,
   badgeOf,
   folderCounts,
   headingAt,
@@ -271,5 +277,74 @@ describe("file explorer", () => {
     expect(publishFor({ publish: true }, "explicit", false)).toBeUndefined()
     expect(publishFor({}, "all", false)).toBe(false)
     expect(publishFor({ publish: false }, "all", true)).toBeUndefined()
+  })
+})
+
+describe("properties", () => {
+  const config = gardenConfig({ languages: ["vi-VN", "en-US"], stages: { "01_Seeds": "fleeting" } })
+
+  test("styles, layouts and frames are matched as datme does: trimmed, any case", () => {
+    expect(propertyProblem("style", " Garden ", config)).toBeUndefined()
+    expect(propertyProblem("layout", "BOOKS", config)).toBeUndefined()
+    expect(propertyProblem("chrome", "minimal", config)).toBeUndefined()
+  })
+
+  test("an unknown value gets datme check's words", () => {
+    expect(propertyProblem("style", "gardn", config)).toStartWith('style "gardn" is not one of notebook, classic, garden,')
+    expect(propertyProblem("style", "gardn", config)).toEndWith("so the note keeps its usual style")
+    expect(propertyProblem("layout", "book", config)).toEndWith("so the note is laid out as usual")
+    expect(propertyProblem("chrome", "none", config)).toBe('chrome "none" is not one of full, minimal, so the note keeps its usual frame')
+  })
+
+  test("a theme pack may add styles, so no style is questioned then", () => {
+    expect(propertyProblem("style", "mine", gardenConfig({ theme: { preset: "Themes/mine" } }))).toBeUndefined()
+  })
+
+  test("stages and languages come from datme.yaml, matched exactly", () => {
+    expect(propertyProblem("stage", "01_Seeds", config)).toBeUndefined()
+    expect(propertyProblem("stage", "01_seeds", config)).toContain("is not one of 01_Seeds")
+    expect(propertyProblem("stage", "x", gardenConfig(null))).toBe('stage "x" is ignored: datme.yaml has no stages')
+    expect(propertyProblem("lang", "en-US", config)).toBeUndefined()
+    expect(propertyProblem("lang", "en", config)).toBe('lang "en" is not one of vi-VN, en-US, so the note is in vi-VN')
+  })
+
+  test("a password group must be a name; any other password is the password itself", () => {
+    expect(propertyProblem("password", "@close-friends", config)).toBeUndefined()
+    expect(propertyProblem("password", "@close friends", config)).toContain("is not a group name")
+    expect(propertyProblem("password", "s3cret", config)).toBeUndefined()
+    expect(lockVariable("@close-friends")).toBe("CLOSE_FRIENDS")
+  })
+
+  test("empty values and other keys are left alone", () => {
+    expect(propertyProblem("style", "", config)).toBeUndefined()
+    expect(propertyProblem("style", null, config)).toBeUndefined()
+    expect(propertyProblem("title", "anything", config)).toBeUndefined()
+    expect(propertyProblems({ style: "x", layout: "cv", chrome: "y" }, config).map((p) => p.key)).toEqual(["style", "chrome"])
+  })
+
+  test("the choices of a property, from the plugin's lists and datme.yaml", () => {
+    expect(propertyChoices("style", config).map((c) => c.value)).toContain("lacquer")
+    expect(propertyChoices("layout", config).find((c) => c.value === "books")).toMatchObject({ collection: true })
+    expect(propertyChoices("stage", config)).toEqual([{ value: "01_Seeds", description: "🌱 Fleeting" }])
+    expect(propertyChoices("lang", config).map((c) => c.value)).toEqual(["vi-VN", "en-US"])
+    expect(propertyChoices("password", config, ["@b", "@a", "@b"]).map((c) => c.value)).toEqual(["@a", "@b"])
+  })
+
+  test("a frontmatter line gives its key and where its value is, quotes and comments aside", () => {
+    expect(propertyLine("style: garden")).toEqual({ key: "style", from: 7, to: 13, value: "garden" })
+    expect(propertyLine('password: "@friends" # who')).toEqual({ key: "password", from: 11, to: 19, value: "@friends" })
+    expect(propertyLine("style:")).toEqual({ key: "style", from: 6, to: 6, value: "" })
+    expect(propertyLine("  - item")).toBeUndefined()
+  })
+
+  test("the frontmatter ends at the next --- or ...", () => {
+    const lines = (text: string) => {
+      const l = text.split("\n")
+      return [(n: number) => l[n], l.length] as const
+    }
+    expect(frontmatterEnd(...lines("---\nstyle: x\n---\nbody"))).toBe(2)
+    expect(frontmatterEnd(...lines("---\nstyle: x\n...\n"))).toBe(2)
+    expect(frontmatterEnd(...lines("body\n---\n"))).toBeUndefined()
+    expect(frontmatterEnd(...lines("---\nstyle: x"))).toBeUndefined()
   })
 })

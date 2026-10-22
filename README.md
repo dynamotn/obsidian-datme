@@ -8,6 +8,13 @@ your digital garden without leaving Obsidian.
   `draft` to go or for its `publish_date`. Click it, or run *Publish or
   unpublish the current note*, to flip it. The plugin follows the `publish`
   mode of your `datme.yaml` (or `datme.yml`, `.datme.yaml`).
+- **Properties as you write them**: after `style:`, `layout:`, `chrome:`,
+  `stage:`, `lang:` or `password:` in a note's frontmatter, the plugin offers
+  the values datme takes: its styles, layouts and frames with a line on each,
+  the stages and languages of your `datme.yaml`, and the `@group` passwords
+  your notes use already. A value datme would not take is underlined with the
+  words `datme check` would use, and the status bar counts them (`⚠️ 1`), so
+  you see them in the Properties view too.
 - **Check the garden for problems** runs `datme check` and lists broken links,
   missing files and invalid frontmatter by note; click a note to open it.
 - **Show link suggestions** opens a pane beside the note you're writing. It
@@ -46,6 +53,7 @@ The plugin also runs in Obsidian on mobile, with what needs no command:
 - whether the current note is published, and flipping it, from the note's menu
   (*datme: publish* or *datme: keep private*) or the command palette;
 - the badges in the file explorer, and publishing a folder at once;
+- suggesting and checking datme's properties in the frontmatter;
 - the garden dashboard, without the link to the current note;
 - the last check report. Each check on a computer saves it in
   `.datme/check.json` (the *Save the check report* setting), so it reaches

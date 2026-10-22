@@ -79,3 +79,10 @@
   content: " 🔒";
   font-size: 0.8em;
 }
+
+/* Frontmatter values datme would not take. */
+.datme-property-problem {
+  text-decoration: underline wavy var(--text-warning);
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
+}

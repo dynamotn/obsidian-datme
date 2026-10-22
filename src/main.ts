@@ -37,6 +37,7 @@ import {
   parseCheck,
   parseSuggestions,
   previewUrl,
+  propertyProblems,
   relatedWhy,
   splitCommand,
   summary,
@@ -49,6 +50,7 @@ import {
 import { hasWebview, PREVIEW_VIEW, PreviewView } from "./preview"
 import { PreviewLook } from "./look"
 import { ExplorerBadges } from "./explorer"
+import { propertyLinter, PropertySuggest } from "./properties"
 
 const SUGGESTIONS_VIEW = "datme-suggestions"
 const DASHBOARD_VIEW = "datme-dashboard"
@@ -160,6 +162,8 @@ export default class DatmePlugin extends Plugin {
       this.registerView(SUGGESTIONS_VIEW, (leaf) => new SuggestionsView(leaf, this))
       this.addCommand({ id: "suggestions", name: "Show link suggestions", callback: () => void this.openView(SUGGESTIONS_VIEW) })
     }
+    this.registerEditorSuggest(new PropertySuggest(this))
+    this.registerEditorExtension(propertyLinter(this))
     this.addSettingTab(new DatmeSettings(this.app, this))
     this.updateStatus()
   }
@@ -173,6 +177,18 @@ export default class DatmePlugin extends Plugin {
   private configChanged() {
     this.updateStatus()
     this.explorer.refresh()
+    // Editors underline frontmatter values against the new config.
+    this.app.workspace.updateOptions()
+  }
+
+  /** The `@group` passwords notes of the vault use already. */
+  passwordGroups(): string[] {
+    const groups = new Set<string>()
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const password = this.app.metadataCache.getFileCache(file)?.frontmatter?.password
+      if (typeof password === "string" && /^@[\w-]+$/.test(password)) groups.add(password)
+    }
+    return [...groups]
   }
 
   async saveSettings() {
@@ -209,17 +225,19 @@ export default class DatmePlugin extends Plugin {
     if (!this.statusEl) return
     const file = this.markdownFile()
     if (!file) return void this.statusEl.setText("")
-    const { state, date } = noteState(this.app.metadataCache.getFileCache(file)?.frontmatter, this.mode, new Date())
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter
+    const { state, date } = noteState(fm, this.mode, new Date())
     const text = { published: "🌱 Published", private: "🔒 Private", draft: "📝 Draft", scheduled: `⏳ ${date}` }
-    this.statusEl.setText(text[state])
-    this.statusEl.setAttribute(
-      "aria-label",
+    // Properties datme would not take: counted here, since the Properties view hides the underlines.
+    const problems = propertyProblems(fm, this.config)
+    this.statusEl.setText(text[state] + (problems.length ? ` · ⚠️ ${problems.length}` : ""))
+    const label =
       state === "private"
         ? "Click to publish this note with datme"
         : state === "published"
           ? "datme publishes this note; click to unpublish"
-          : `datme publishes this note ${state === "draft" ? "once draft is removed" : `on ${date}`}; click to unpublish`,
-    )
+          : `datme publishes this note ${state === "draft" ? "once draft is removed" : `on ${date}`}; click to unpublish`
+    this.statusEl.setAttribute("aria-label", [label, ...problems.map((p) => `⚠️ ${p.message}`)].join("\n"))
   }
 
   async togglePublish(file = this.markdownFile()) {

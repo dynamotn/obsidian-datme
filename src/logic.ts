@@ -501,3 +501,20 @@ export function scrollScript(heading: string | undefined): string {
   h?.scrollIntoView({ behavior: "smooth", block: "start" })
 })()`
 }
+
+/** The line that closes a note's frontmatter, or undefined when it has none. Line 0 opens it. */
+export function frontmatterEnd(lineAt: (n: number) => string, lines: number): number | undefined {
+  if (lines < 2 || lineAt(0).trimEnd() !== "---") return undefined
+  for (let n = 1; n < lines; n++) if (/^(---|\.\.\.)\s*$/.test(lineAt(n))) return n
+  return undefined
+}
+
+/** The problems of a note's known properties, as the status bar and the editor show them. */
+export function propertyProblems(fm: Record<string, unknown> | undefined, config: GardenConfig): { key: string; message: string }[] {
+  const out: { key: string; message: string }[] = []
+  for (const key of KNOWN_PROPERTIES) {
+    const message = propertyProblem(key, fm?.[key], config)
+    if (message) out.push({ key, message })
+  }
+  return out
+}
