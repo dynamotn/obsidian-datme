@@ -183,8 +183,8 @@ export interface GardenConfig {
   ignore: string[]
   /** The garden's languages, the default first. */
   languages: string[]
-  /** The stages of `stages:`, by key, with their label. */
-  stages: { name: string; label: string }[]
+  /** The stages of `stages:`, by key, with their label, and the preset they name if any. */
+  stages: { name: string; label: string; preset?: string }[]
   /** What the site shows for a link to a note it does not publish. */
   privateLinks: PrivateLinks
   /** A theme pack (`theme.preset`), which may add styles of its own. */
@@ -193,6 +193,16 @@ export interface GardenConfig {
   appearance: Appearance
   /** The note that is the home page, `index.md` unless set. */
   home: string
+  /** After how many years a note reads as out of date (`outdated.after`), if set. */
+  outdatedAfter?: number
+  /** Where readers answer: webmention.io's account, giscus' discussions. */
+  responses: Responses
+}
+
+export interface Responses {
+  /** The webmention.io account, when `webmentions:` is set. */
+  webmentions?: string
+  giscus?: { repo: string; category: string; mapping: "pathname" | "url" | "title" | "og:title" }
 }
 
 export interface Appearance {
@@ -209,6 +219,27 @@ export interface Appearance {
   languages: Record<string, string>
   /** Styles for days of the year, MM-DD to MM-DD, both included. */
   schedule: { style: string; from: string; to: string }[]
+}
+
+function responsesOf(c: Record<string, unknown>, site: Record<string, unknown>): Responses {
+  const out: Responses = {}
+  if (c.webmentions !== undefined && c.webmentions !== null) {
+    const domain = record(c.webmentions).domain
+    let host: string | undefined
+    try {
+      host = typeof site.url === "string" && site.url ? new URL(site.url).host : undefined
+    } catch {
+      // datme refuses a site.url that is no URL; here it only means no webmentions
+    }
+    const account = typeof domain === "string" && domain ? domain : host
+    if (account) out.webmentions = account
+  }
+  const comments = record(c.comments)
+  if (comments.provider === "giscus" && typeof comments.repo === "string" && typeof comments.category === "string") {
+    const mapping = ["url", "title", "og:title"].includes(String(comments.mapping)) ? (comments.mapping as "url" | "title" | "og:title") : "pathname"
+    out.giscus = { repo: comments.repo, category: comments.category, mapping }
+  }
+  return out
 }
 
 /** `home:` names a note, or is `{ note }`; `bento` draws the home page, so index.md is no page then. */
@@ -256,9 +287,9 @@ export function gardenConfig(parsed: unknown): GardenConfig {
   const ignore = Array.isArray(c.ignore) ? c.ignore.map((p) => String(p).replace(/^\/+|\/+$/g, "")) : []
   const languages = Array.isArray(c.languages) ? c.languages.filter((l): l is string => typeof l === "string" && l.length >= 2) : []
   const stages = Object.entries(record(c.stages)).map(([name, v]) => {
-    const preset = typeof v === "string" ? STAGE_PRESETS[v.toLowerCase()] : undefined
-    const label = preset ?? (typeof v === "string" ? v : typeof record(v).label === "string" ? String(record(v).label) : name.replace(/^[\d._-]+/, ""))
-    return { name, label }
+    const preset = typeof v === "string" && STAGE_PRESETS[v.toLowerCase()] ? v.toLowerCase() : undefined
+    const label = preset ? STAGE_PRESETS[preset] : typeof v === "string" ? v : typeof record(v).label === "string" ? String(record(v).label) : name.replace(/^[\d._-]+/, "")
+    return preset ? { name, label, preset } : { name, label }
   })
   return {
     mode: c.publish === "all" ? "all" : "explicit",
@@ -270,6 +301,8 @@ export function gardenConfig(parsed: unknown): GardenConfig {
     preset: typeof theme.preset === "string" && theme.preset ? theme.preset : undefined,
     appearance: appearanceOf(c.appearance),
     home: homeOf(c.home),
+    outdatedAfter: typeof record(c.outdated).after === "number" && Number(record(c.outdated).after) > 0 ? Number(record(c.outdated).after) : undefined,
+    responses: responsesOf(c, site),
   }
 }
 
@@ -768,4 +801,111 @@ export function publishDateValue(day: string, time: string | undefined, offset: 
   const abs = Math.abs(offset)
   const pad = (n: number) => String(n).padStart(2, "0")
   return `${day}T${time}:00${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`
+}
+
+const DAY = 86_400_000
+const YEAR = 365.25 * DAY
+
+/** A date of the frontmatter as datme reads it, `new Date(String(v))`, or undefined when it is none. */
+function fmDate(v: unknown): number | undefined {
+  if (v == null || v === "") return undefined
+  const t = new Date(String(v)).getTime()
+  return Number.isNaN(t) ? undefined : t
+}
+
+/** When a note was last tended: `updated`, `modified` or `lastmod`, else the file's own time (datme asks git first). */
+export function updatedAt(fm: Record<string, unknown> | undefined, mtime: number): number {
+  return fmDate(fm?.updated ?? fm?.modified ?? fm?.lastmod) ?? mtime
+}
+
+export type TendKind = "orphan" | "dead-end" | "outdated" | "stalled"
+
+export interface TendItem {
+  path: string
+  kind: TendKind
+  /** When the note was last tended, for the oldest first. */
+  since: number
+  /** Why it is in the queue, in a few words. */
+  why: string
+}
+
+export interface TendNote {
+  path: string
+  fm?: Record<string, unknown>
+  mtime: number
+}
+
+/** datme's own words for orphans and dead ends in `datme check --json`. */
+const SHAPE: [TendKind, string][] = [
+  ["orphan", "orphan:"],
+  ["dead-end", "dead end:"],
+]
+
+/**
+ * What the garden asks of its author, oldest first: notes no published note
+ * links to (orphans), notes that link to none (dead ends), notes out of date
+ * by `outdated.after`, and notes still in a fleeting or literature stage
+ * untouched for `staleDays`.
+ */
+export function tendingQueue(notes: TendNote[], report: CheckResult | undefined, config: GardenConfig, now: number, staleDays: number): TendItem[] {
+  const byPath = new Map(notes.map((n) => [n.path, n]))
+  const out: TendItem[] = []
+  const since = (n: TendNote) => updatedAt(n.fm, n.mtime)
+  for (const p of report?.problems ?? []) {
+    const shape = SHAPE.find(([, prefix]) => p.message.startsWith(prefix))
+    const note = byPath.get(p.file)
+    if (!shape || !note) continue
+    out.push({ path: p.file, kind: shape[0], since: since(note), why: shape[0] === "orphan" ? "No published note links here" : "Links to no published note" })
+  }
+  for (const n of notes) {
+    if (isIgnored(n.path, config) || n.path === config.home) continue
+    const { state } = noteState(n.fm, config.mode, new Date(now))
+    const at = since(n)
+    const daily = /^\d{4}-\d{2}-\d{2}$/.test(n.path.split("/").pop()!.replace(/\.md$/i, ""))
+    if (config.outdatedAfter && state === "published" && n.fm?.outdated !== false && !daily && now - at > config.outdatedAfter * YEAR) {
+      out.push({ path: n.path, kind: "outdated", since: at, why: `Readers see it as out of date (${config.outdatedAfter} year${config.outdatedAfter === 1 ? "" : "s"})` })
+    }
+    const stage = noteStage(n, config)
+    const preset = config.stages.find((s) => s.name === stage)?.preset
+    if ((preset === "fleeting" || preset === "literature") && now - at > staleDays * DAY) {
+      out.push({ path: n.path, kind: "stalled", since: at, why: `Still ${preset}, untouched for ${Math.floor((now - at) / DAY)} days` })
+    }
+  }
+  return out.sort((a, b) => a.since - b.since || a.path.localeCompare(b.path))
+}
+
+/** Where an item is kept when snoozed or done: one key per note and reason. */
+export const tendKey = (item: Pick<TendItem, "path" | "kind">) => `${item.kind}:${item.path}`
+
+export interface TendState {
+  /** Hidden until then. */
+  snoozed: Record<string, number>
+  /** Marked done then. */
+  done: Record<string, number>
+}
+
+/**
+ * The items still to show. Done counts as tending the note: an out of date or
+ * stalled note comes back once it is old again from then on, an orphan or a
+ * dead end once a check made after it still reports it.
+ */
+export function stillToTend(items: TendItem[], state: TendState, now: number, reportAt: number | undefined, config: GardenConfig, staleDays: number): TendItem[] {
+  return items.filter((item) => {
+    const key = tendKey(item)
+    if ((state.snoozed[key] ?? 0) > now) return false
+    const done = state.done[key]
+    if (done === undefined) return true
+    if (item.kind === "orphan" || item.kind === "dead-end") return reportAt !== undefined && reportAt > done
+    const limit = item.kind === "outdated" ? (config.outdatedAfter ?? 0) * YEAR : staleDays * DAY
+    return now - Math.max(done, item.since) > limit
+  })
+}
+
+/** Keys that no longer matter: snoozes that ran out, and done marks of items no longer in the queue. */
+export function prunedTendState(state: TendState, items: TendItem[], now: number): TendState {
+  const live = new Set(items.map(tendKey))
+  return {
+    snoozed: Object.fromEntries(Object.entries(state.snoozed).filter(([k, until]) => until > now && live.has(k))),
+    done: Object.fromEntries(Object.entries(state.done).filter(([k]) => live.has(k))),
+  }
 }

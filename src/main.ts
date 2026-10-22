@@ -51,6 +51,7 @@ import {
   type GardenConfig,
   type Mention,
   type Suggestions,
+  type TendState,
 } from "./logic"
 import { hasWebview, PREVIEW_VIEW, PreviewView } from "./preview"
 import { PreviewLook } from "./look"
@@ -59,6 +60,7 @@ import { propertyLinter, PropertySuggest } from "./properties"
 import { LookModal, type LookKey } from "./pick"
 import { markRenderedLinks, privateLinkMarker } from "./private-links"
 import { ScheduleModal, unschedule } from "./schedule"
+import { renderTending, tendingStatus } from "./tending"
 
 const SUGGESTIONS_VIEW = "datme-suggestions"
 const DASHBOARD_VIEW = "datme-dashboard"
@@ -89,14 +91,26 @@ interface Settings {
   explorerBadges: boolean
   /** A dotted underline and 🔒 on links to notes datme does not publish. */
   markPrivateLinks: boolean
+  /** "3 notes to tend" in the status bar. */
+  tendCount: boolean
+  /** After how many days untouched a fleeting or literature note asks to be tended. */
+  staleDays: number
+  /** What was snoozed or done in the tending queue. */
+  tend: TendState
 }
 
-const DEFAULTS: Settings = { command: "bunx @dynamotn/datme", port: 4321, showNotices: false, saveReport: true, explorerBadges: true, markPrivateLinks: true }
+const DEFAULTS: Settings = { command: "bunx @dynamotn/datme", port: 4321, showNotices: false, saveReport: true, explorerBadges: true,
+  markPrivateLinks: true,
+  tendCount: false,
+  staleDays: 90,
+  tend: { snoozed: {}, done: {} },
+}
 
 export default class DatmePlugin extends Plugin {
   settings: Settings = { ...DEFAULTS }
   private preview: ChildProcess | undefined
   private statusEl: HTMLElement | undefined
+  private tendEl: HTMLElement | undefined
   config: GardenConfig = gardenConfig(null)
   /** The last check report, run here or saved by another device or CI; when it was made. */
   report: { result: CheckResult; at?: number } | undefined
@@ -111,11 +125,22 @@ export default class DatmePlugin extends Plugin {
   }
 
   override async onload() {
-    this.settings = { ...DEFAULTS, ...((await this.loadData()) as Partial<Settings> | null) }
+    const saved = (await this.loadData()) as Partial<Settings> | null
+    this.settings = { ...DEFAULTS, ...saved, tend: { snoozed: {}, done: {}, ...saved?.tend } }
     await this.readMode()
 
     const desktop = Platform.isDesktopApp
     if (desktop) this.addRibbonIcon("sprout", "datme: preview this note", () => void this.openPreviewPane())
+    this.tendEl = this.addStatusBarItem()
+    this.tendEl.addClass("mod-clickable")
+    this.tendEl.addEventListener("click", () => void this.openView(DASHBOARD_VIEW))
+    this.tendEl.hide()
+    this.registerEvent(this.app.metadataCache.on("resolved", () => this.tendingChanged()))
+    // The count needs the last report, which a phone or a fresh start only has saved.
+    this.app.workspace.onLayoutReady(async () => {
+      this.report ??= await this.savedReport()
+      this.tendingChanged()
+    })
     this.statusEl = this.addStatusBarItem()
     this.statusEl.addClass("mod-clickable")
     this.statusEl.addEventListener("click", () => void this.togglePublish())
@@ -265,6 +290,16 @@ export default class DatmePlugin extends Plugin {
     this.stopPreview()
     for (const el of Array.from(document.querySelectorAll(".datme-badge"))) el.remove()
   }
+
+  /** The tending queue changed: a check, a note, a snooze. Its count and the dashboards follow. */
+  tendingChanged = debounce(
+    () => {
+      if (this.tendEl) tendingStatus(this, this.tendEl)
+      for (const leaf of this.app.workspace.getLeavesOfType(DASHBOARD_VIEW)) (leaf.view as DashboardView).refresh()
+    },
+    1000,
+    true,
+  )
 
   /** What follows datme.yaml once it was read again. */
   private configChanged() {
@@ -440,7 +475,7 @@ export default class DatmePlugin extends Plugin {
     new Notice(`datme: ${summary(result.counts)}`)
     new ProblemsModal(this.app, result, this.settings.showNotices).open()
     this.report = { result, at: Date.now() }
-    for (const leaf of this.app.workspace.getLeavesOfType(DASHBOARD_VIEW)) (leaf.view as DashboardView).refresh()
+    this.tendingChanged()
     if (this.settings.saveReport) await this.saveReport(result)
   }
 
@@ -776,6 +811,8 @@ class DashboardView extends ItemView {
     }
     if (Platform.isDesktopApp) el.createEl("button", { text: "Check now" }).addEventListener("click", () => void this.plugin.check())
 
+    renderTending(this.plugin, el, (parent, path) => this.noteLink(parent, path))
+
     if (config.url) {
       el.createEl("h4", { text: "On the web" })
       const links = el.createEl("ul")
@@ -888,6 +925,29 @@ class DatmeSettings extends PluginSettingTab {
           this.plugin.settings.markPrivateLinks = v
           await this.plugin.saveSettings()
           this.plugin.redrawLinks()
+        }),
+      )
+    new Setting(containerEl)
+      .setName("Notes to tend in the status bar")
+      .setDesc("Count the notes of the dashboard's Tend list in the status bar: orphans, dead ends, notes out of date and notes left fleeting.")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.tendCount).onChange(async (v) => {
+          this.plugin.settings.tendCount = v
+          await this.plugin.saveSettings()
+          this.plugin.tendingChanged()
+        }),
+      )
+    new Setting(containerEl)
+      .setName("Days before a fleeting note asks to be tended")
+      .setDesc("A note in a fleeting or literature stage of datme.yaml joins the Tend list once untouched this long.")
+      .addText((t) =>
+        t.setValue(String(this.plugin.settings.staleDays)).onChange(async (v) => {
+          const days = Number(v)
+          if (Number.isInteger(days) && days > 0) {
+            this.plugin.settings.staleDays = days
+            await this.plugin.saveSettings()
+            this.plugin.tendingChanged()
+          }
         }),
       )
     new Setting(containerEl)

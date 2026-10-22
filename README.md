@@ -50,6 +50,14 @@ your digital garden without leaving Obsidian.
   with the dates of the scheduled ones; the errors, warnings and notices of the
   last check, and how old it is; and links to the site (`site.url`) and to the
   current note on it.
+- **Tend**, on the dashboard, is the garden's to-do list, oldest first: 🪴
+  orphans (no published note links to them) and 🚧 dead ends (they link to
+  none) from the last check, ⏳ notes readers see as out of date
+  (`outdated.after` in `datme.yaml`), and 🌾 notes still in a fleeting or
+  literature stage after 90 days untouched. Click one to open it; *Snooze*
+  hides it for a month, *Done* counts as tending it: it comes back once it is
+  old again, or once a newer check still finds it. The status bar can count
+  them too (*3 notes to tend*), off by default.
 - **Preview the current note** (also the 🌱 ribbon button) starts `datme dev`
   if it isn't running, then shows the note's page on `localhost` in a pane
   beside the editor. The pane follows the note you open, reloads when the vault
@@ -81,7 +89,8 @@ The plugin also runs in Obsidian on mobile, with what needs no command:
   plugin as datme does;
 - suggesting and checking datme's properties in the frontmatter, and *Set
   style…* / *Set layout…*;
-- the garden dashboard, without the link to the current note;
+- the garden dashboard, its Tend list included, without the link to the
+  current note;
 - the last check report. Each check on a computer saves it in
   `.datme/check.json` (the *Save the check report* setting), so it reaches
   the phone with the rest of the vault. CI can write it too:
@@ -116,6 +125,8 @@ instead.
 - **Preview port**: 4321 by default.
 - **Badges in the file explorer**: on by default.
 - **Mark links to private notes**: on by default.
+- **Notes to tend in the status bar**: off by default.
+- **Days before a fleeting note asks to be tended**: 90 by default.
 - **Show notices**: also list links to unpublished notes in the check report.
 
 ## Development

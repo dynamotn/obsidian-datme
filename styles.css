@@ -94,3 +94,21 @@
   text-decoration-skip-ink: none;
   text-underline-offset: 3px;
 }
+
+/* The Tend list of the dashboard. */
+.datme-tend li {
+  position: relative;
+  padding-inline-end: 4.5em;
+  margin-block-end: var(--size-4-2);
+}
+
+.datme-tend-why {
+  font-size: var(--font-ui-smaller);
+}
+
+.datme-tend-actions {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 0;
+  display: flex;
+}

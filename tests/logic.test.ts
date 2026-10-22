@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test"
 import {
   ago,
+  prunedTendState,
+  stillToTend,
+  tendingQueue,
+  updatedAt,
   publishDateValue,
   linksIn,
   privateLinkLabel,
@@ -178,6 +182,8 @@ describe("garden dashboard", () => {
       preset: undefined,
       appearance: { style: "notebook", folders: {}, classic: [], tags: {}, stages: {}, languages: {}, schedule: [] },
       home: "index.md",
+      outdatedAfter: undefined,
+      responses: {},
     })
   })
 
@@ -190,7 +196,7 @@ describe("garden dashboard", () => {
     })
     expect(c.languages).toEqual(["vi-VN", "en-US"])
     expect(c.stages).toEqual([
-      { name: "01_Seeds", label: "🌱 Fleeting" },
+      { name: "01_Seeds", label: "🌱 Fleeting", preset: "fleeting" },
       { name: "ideas", label: "Ideas" },
       { name: "02_Trees", label: "Trees" },
       { name: "03_Rocks", label: "Rocks" },
@@ -476,5 +482,66 @@ describe("scheduling", () => {
       state: "scheduled",
       date: "2026-11-01",
     })
+  })
+})
+
+describe("tending queue", () => {
+  const DAY = 86_400_000
+  const now = new Date("2026-10-22T00:00:00Z").getTime()
+  const config = gardenConfig({ outdated: { after: 2 }, stages: { "01_Fleeting": "fleeting", "03_Permanent": "permanent" } })
+  const report = {
+    counts: { error: 0, warning: 0, info: 3 },
+    problems: [
+      { level: "info" as const, file: "A/lonely.md", message: "orphan: no published note links here, and the menu does not either" },
+      { level: "info" as const, file: "A/stuck.md", message: "dead end: links to no published note" },
+      { level: "info" as const, file: "A/big.md", message: "hub: links to 40 notes, 8 times the median of 5; a map of content could split it" },
+    ],
+  }
+  const notes = [
+    { path: "A/lonely.md", fm: { publish: true, updated: "2026-01-01" }, mtime: now },
+    { path: "A/stuck.md", fm: { publish: true }, mtime: now - 10 * DAY },
+    { path: "A/big.md", fm: { publish: true }, mtime: now },
+    { path: "A/old.md", fm: { publish: true, modified: "2023-05-01" }, mtime: now },
+    { path: "A/old-but-kept.md", fm: { publish: true, modified: "2023-05-01", outdated: false }, mtime: now },
+    { path: "A/2020-01-01.md", fm: { publish: true }, mtime: now - 2000 * DAY },
+    { path: "01_Fleeting/idea.md", fm: {}, mtime: now - 120 * DAY },
+    { path: "01_Fleeting/fresh.md", fm: {}, mtime: now - 5 * DAY },
+    { path: "03_Permanent/done.md", fm: {}, mtime: now - 900 * DAY },
+    { path: "templates/t.md", fm: { publish: true, modified: "2000-01-01" }, mtime: now },
+  ]
+
+  test("orphans and dead ends from the check, out of date and stalled notes from their dates, oldest first", () => {
+    const q = tendingQueue(notes, report, config, now, 90)
+    expect(q.map((i) => `${i.kind} ${i.path}`)).toEqual([
+      "outdated A/old.md",
+      "orphan A/lonely.md",
+      "stalled 01_Fleeting/idea.md",
+      "dead-end A/stuck.md",
+    ])
+    expect(q[2].why).toBe("Still fleeting, untouched for 120 days")
+  })
+
+  test("without outdated.after nothing is out of date", () => {
+    expect(tendingQueue(notes, undefined, gardenConfig({}), now, 90)).toEqual([])
+  })
+
+  test("a snoozed item hides until then; done hides it until it is old again, or a newer check still finds it", () => {
+    const q = tendingQueue(notes, report, config, now, 90)
+    const state = { snoozed: { "orphan:A/lonely.md": now + DAY }, done: { "dead-end:A/stuck.md": now - DAY, "stalled:01_Fleeting/idea.md": now - DAY } }
+    expect(stillToTend(q, state, now, now - 2 * DAY, config, 90).map((i) => i.kind)).toEqual(["outdated"])
+    // A check after the mark still finds the dead end; 90 days later the idea is stalled again; the orphan's snooze has run out.
+    expect(stillToTend(q, state, now + 91 * DAY, now, config, 90).map((i) => i.kind)).toEqual(["outdated", "orphan", "stalled", "dead-end"])
+  })
+
+  test("pruning drops run-out snoozes and marks of items gone from the queue", () => {
+    const q = tendingQueue(notes, report, config, now, 90)
+    const pruned = prunedTendState({ snoozed: { "orphan:A/lonely.md": now - 1, "outdated:A/old.md": now + DAY }, done: { "orphan:Gone.md": now, "stalled:01_Fleeting/idea.md": now } }, q, now)
+    expect(pruned).toEqual({ snoozed: { "outdated:A/old.md": now + DAY }, done: { "stalled:01_Fleeting/idea.md": now } })
+  })
+
+  test("the date a note was tended: updated, modified or lastmod, else the file's time", () => {
+    expect(updatedAt({ updated: "2026-01-02" }, 5)).toBe(new Date("2026-01-02").getTime())
+    expect(updatedAt({ modified: ["2026-10-22T21:14"] }, 5)).toBe(new Date("2026-10-22T21:14").getTime())
+    expect(updatedAt({ lastmod: "not a date" }, 5)).toBe(5)
   })
 })
