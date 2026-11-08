@@ -70,6 +70,8 @@ import { renderTending, tendingStatus } from "./tending"
 import { renderCalendar } from "./calendar"
 import { RESPONSES_VIEW, ResponsesView, ResponseWatcher } from "./responses"
 import { checkFailed, checkMarks, checkStarts, showProblems } from "./check-marks"
+import { CONFIG_VIEW, ConfigView } from "./config-editor"
+import type { Schema } from "./config-schema"
 
 const SUGGESTIONS_VIEW = "datme-suggestions"
 const DASHBOARD_VIEW = "datme-dashboard"
@@ -140,6 +142,9 @@ export default class DatmePlugin extends Plugin {
   previewLook = new PreviewLook()
   explorer = new ExplorerBadges(this)
   responses = new ResponseWatcher(this)
+  /** datme's JSON Schema, for the datme.yaml pane; whether the site was asked for it this session. */
+  schema: Schema | undefined
+  schemaFetched = false
   /** The state each note had when last seen, to tell when it changes. */
   private states = new Map<string, string>()
 
@@ -184,7 +189,7 @@ export default class DatmePlugin extends Plugin {
     this.app.workspace.onLayoutReady(() => this.explorer.refresh())
     // The config is read again when it is written, created, deleted or renamed.
     const reread = (path: string, oldPath?: string) => {
-      if (CONFIG_FILES.includes(path) || (oldPath && CONFIG_FILES.includes(oldPath))) void this.readMode().then(() => this.configChanged())
+      if (CONFIG_FILES.includes(path) || (oldPath && CONFIG_FILES.includes(oldPath))) void this.reloadConfig()
     }
     this.registerEvent(this.app.vault.on("modify", (f) => reread(f.path)))
     this.registerEvent(this.app.vault.on("create", (f) => reread(f.path)))
@@ -277,6 +282,8 @@ export default class DatmePlugin extends Plugin {
     this.addCommand({ id: "last-report", name: "Show the last saved check report", callback: () => void this.showSavedReport() })
     this.registerView(DASHBOARD_VIEW, (leaf) => new DashboardView(leaf, this))
     this.registerView(RESPONSES_VIEW, (leaf) => new ResponsesView(leaf, this))
+    this.registerView(CONFIG_VIEW, (leaf) => new ConfigView(leaf, this))
+    this.addCommand({ id: "edit-config", name: "Edit datme.yaml", callback: () => void this.editConfig() })
     this.addCommand({ id: "responses", name: "Show readers' responses to the current note", callback: () => void this.openView(RESPONSES_VIEW) })
     this.app.workspace.onLayoutReady(() => this.responses.start())
     this.addCommand({ id: "dashboard", name: "Open the garden dashboard", callback: () => void this.openView(DASHBOARD_VIEW) })
@@ -341,6 +348,23 @@ export default class DatmePlugin extends Plugin {
     1000,
     true,
   )
+
+  /** Read datme.yaml again, and redraw what follows it. */
+  async reloadConfig() {
+    await this.readMode()
+    this.configChanged()
+  }
+
+  /** datme.yaml in its pane, with completion and checks from datme's schema; a dotfile config too. */
+  async editConfig() {
+    let path: string | undefined
+    for (const name of CONFIG_FILES) if (await this.app.vault.adapter.exists(name)) path ??= name
+    if (!path) return void new Notice("The vault has no datme.yaml yet: datme init writes one.", 6000)
+    const open = this.app.workspace.getLeavesOfType(CONFIG_VIEW)[0]
+    const leaf = open ?? this.app.workspace.getLeaf("tab")
+    await leaf.setViewState({ type: CONFIG_VIEW, active: true, state: { path } })
+    void this.app.workspace.revealLeaf(leaf)
+  }
 
   /** What follows datme.yaml once it was read again. */
   private configChanged() {

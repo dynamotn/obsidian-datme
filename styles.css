@@ -196,3 +196,18 @@
   font-size: var(--font-ui-smaller);
   margin-block-start: var(--size-4-1);
 }
+
+/* The datme.yaml pane: its editor fills it. */
+.datme-config.view-content {
+  padding: 0;
+}
+
+.datme-config .cm-editor {
+  height: 100%;
+  font-family: var(--font-monospace);
+}
+
+.datme-config-hover {
+  max-width: 30em;
+  padding: var(--size-4-1) var(--size-4-2);
+}

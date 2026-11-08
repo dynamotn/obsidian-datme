@@ -43,6 +43,14 @@ your digital garden without leaving Obsidian.
   and reading view, since readers won't see them as links. Hover one for what
   the site shows instead under your `privateLinks` (its words as plain text,
   a placeholder, or nothing). A draft or scheduled note's links say so too.
+- **Edit datme.yaml** opens the vault's `datme.yaml` (or `datme.yml`,
+  `.datme.yaml`) in a pane of its own, since Obsidian opens no YAML file. It
+  completes keys where the cursor is and the values a key takes (⌃Space asks
+  on an empty line), with what each one does, shown again on hover; what
+  datme's schema would refuse is underlined as you type: an unknown key, a
+  value of the wrong type, one outside its list. The schema comes from
+  datme's site and is kept in `.datme/schema.json` for a phone or a day
+  offline. Patterns, lengths and required keys are left to `datme check`.
 - **Check the garden for problems** runs `datme check` and lists broken links,
   missing files and invalid frontmatter by note; click a note to open it.
 - **Problems in the editor**: what the last check found in the note you are
@@ -111,6 +119,8 @@ The plugin also runs in Obsidian on mobile, with what needs no command:
 - suggesting and checking datme's properties in the frontmatter, and *Set
   style…* / *Set layout…*;
 - readers' responses to a note;
+- *Edit datme.yaml*, its schema from `.datme/schema.json` when the phone is
+  offline;
 - the garden dashboard, its Tend list included, without the link to the
   current note;
 - the last check report. Each check on a computer saves it in
@@ -158,8 +168,12 @@ instead.
 
 ## Network
 
-The plugin goes online only for readers' responses, and only when you open
-their pane, the dashboard with a token, or turn on the notices:
+The plugin goes online for datme's schema, once a session when you open
+*Edit datme.yaml*, and for readers' responses, only when you open their pane,
+the dashboard with a token, or turn on the notices:
+
+- `dynamo-brain.gitlab.io` gets a request for `datme/datme.schema.json`, with
+  nothing of yours;
 
 - `webmention.io` gets the note's address (`api/mentions.jf2?target[]=…`), or
   your token for the whole account;

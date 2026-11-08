@@ -1,0 +1,305 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "site": {
+      "default": {
+        "me": []
+      },
+      "type": "object",
+      "properties": {
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "tagline": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "author": {
+          "type": "string"
+        },
+        "logo": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8,
+          "description": "One letter or emoji shown as the logo and favicon."
+        },
+        "me": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri"
+          },
+          "description": "Profiles that link back to the site, as rel=\"me\" (verifies the site on Mastodon)."
+        },
+        "fediverse": {
+          "type": "string",
+          "pattern": "^@[^@\\s]+@[^@\\s]+$",
+          "description": "Fediverse handle credited when a note is shared on Mastodon, e.g."
+        }
+      },
+      "additionalProperties": false
+    },
+    "publish": {
+      "default": "explicit",
+      "type": "string",
+      "enum": [
+        "explicit",
+        "all"
+      ],
+      "description": "explicit: only notes with `publish: true`; all: every note except `publish: false`."
+    },
+    "privateLinks": {
+      "default": "text",
+      "type": "string",
+      "enum": [
+        "text",
+        "placeholder",
+        "hide"
+      ],
+      "description": "What a link to a note that is not published shows: text, its words as written; placeholder, a neutral \"a private note\"; hide, nothing unless the link has an alias."
+    },
+    "nav": {
+      "default": [
+        "home",
+        "tags"
+      ],
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "type": "string",
+            "enum": [
+              "home",
+              "tags",
+              "archive",
+              "recent",
+              "timeline",
+              "map",
+              "stats",
+              "calendar",
+              "practice",
+              "changes"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "note": {
+                "type": "string",
+                "minLength": 1
+              },
+              "label": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              }
+            },
+            "required": [
+              "note"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "minLength": 1
+              },
+              "label": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              }
+            },
+            "required": [
+              "url",
+              "label"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "description": "Main menu, in order: built-in pages, notes (by wikilink target) or plain URLs."
+    },
+    "home": {
+      "default": "index.md",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "note": {
+              "default": "index.md",
+              "type": "string"
+            },
+            "layout": {
+              "default": "default",
+              "type": "string",
+              "enum": [
+                "default",
+                "bento"
+              ]
+            },
+            "tiles": {
+              "default": [
+                "now",
+                "recent",
+                "random",
+                "stats",
+                "graph",
+                "stream",
+                "tags"
+              ],
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "now",
+                  "recent",
+                  "random",
+                  "stats",
+                  "graph",
+                  "stream",
+                  "tags"
+                ]
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ],
+      "description": "Vault-relative note rendered as the home page; `bento` keeps index.md and lays the home out as a dashboard of tiles, which the long form chooses: { note, layout: bento, tiles: [now, recent…] }."
+    },
+    "comments": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "const": "giscus"
+            },
+            "repo": {
+              "type": "string",
+              "pattern": "^[^/\\s]+\\/[^/\\s]+$"
+            },
+            "repoId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "category": {
+              "type": "string",
+              "minLength": 1
+            },
+            "categoryId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "mapping": {
+              "default": "pathname",
+              "type": "string",
+              "enum": [
+                "pathname",
+                "url",
+                "title",
+                "og:title"
+              ]
+            },
+            "reactions": {
+              "default": true,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "provider",
+            "repo",
+            "repoId",
+            "category",
+            "categoryId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "const": "commento"
+            },
+            "host": {
+              "default": "https://cdn.commento.io",
+              "type": "string"
+            }
+          },
+          "required": [
+            "provider"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "history": {
+      "default": false,
+      "type": "boolean",
+      "description": "A page per note showing how it grew, from its git history. Off by default: it publishes what was later deleted. `history: false` in a note opts it out."
+    }
+  }
+}
