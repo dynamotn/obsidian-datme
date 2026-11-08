@@ -45,6 +45,13 @@ your digital garden without leaving Obsidian.
   a placeholder, or nothing). A draft or scheduled note's links say so too.
 - **Check the garden for problems** runs `datme check` and lists broken links,
   missing files and invalid frontmatter by note; click a note to open it.
+- **Problems in the editor**: what the last check found in the note you are
+  editing is underlined where datme points at it (datme 4 or later), with a
+  marker in the gutter and the message on hover; the status bar counts them
+  with the properties' (`⚠️ 2`). The places follow your typing until the next
+  check, which runs a few seconds after you save the note, never while you
+  type. A problem without a place stays in the report only. On a phone, the
+  places come from the saved report, for notes unchanged since.
 - **Show link suggestions** opens a pane beside the note you're writing. It
   lists the published notes related to it (shared tags and links, and
   closeness in meaning with `related.semantic`), and the places where the note
@@ -138,6 +145,7 @@ instead.
   `PATH`, so the plugin also looks in `~/.bun/bin`, `/opt/homebrew/bin`,
   `/usr/local/bin` and the shims of mise and asdf.
 - **Preview port**: 4321 by default.
+- **Check again when a note is saved**: on by default (desktop).
 - **Badges in the file explorer**: on by default.
 - **Mark links to private notes**: on by default.
 - **Notes to tend in the status bar**: off by default.

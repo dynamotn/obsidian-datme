@@ -36,6 +36,7 @@ import {
   isPublished,
   locate,
   mentionLink,
+  noteProblems,
   noteState,
   parseCheck,
   parseSuggestions,
@@ -54,6 +55,7 @@ import {
   type CheckResult,
   type GardenConfig,
   type Mention,
+  type Problem,
   type Suggestions,
   type TendState,
 } from "./logic"
@@ -67,6 +69,7 @@ import { ScheduleModal, unschedule } from "./schedule"
 import { renderTending, tendingStatus } from "./tending"
 import { renderCalendar } from "./calendar"
 import { RESPONSES_VIEW, ResponsesView, ResponseWatcher } from "./responses"
+import { checkFailed, checkMarks, checkStarts, showProblems } from "./check-marks"
 
 const SUGGESTIONS_VIEW = "datme-suggestions"
 const DASHBOARD_VIEW = "datme-dashboard"
@@ -93,6 +96,8 @@ interface Settings {
   showNotices: boolean
   /** Save each check report in the vault, for the plugin on a phone. */
   saveReport: boolean
+  /** Check the garden again a moment after a note is saved, for the problems shown in the editor. */
+  checkOnSave: boolean
   /** Badges beside notes and folders in the file explorer. */
   explorerBadges: boolean
   /** A dotted underline and 🔒 on links to notes datme does not publish. */
@@ -111,7 +116,7 @@ interface Settings {
   lastMentionId: number
 }
 
-const DEFAULTS: Settings = { command: "bunx @dynamotn/datme", port: 4321, showNotices: false, saveReport: true, explorerBadges: true,
+const DEFAULTS: Settings = { command: "bunx @dynamotn/datme", port: 4321, showNotices: false, saveReport: true, checkOnSave: true, explorerBadges: true,
   markPrivateLinks: true,
   tendCount: false,
   staleDays: 90,
@@ -160,6 +165,8 @@ export default class DatmePlugin extends Plugin {
     this.app.workspace.onLayoutReady(async () => {
       this.report ??= await this.savedReport()
       this.tendingChanged()
+      showProblems(this)
+      this.updateStatus()
     })
     this.statusEl = this.addStatusBarItem()
     this.statusEl.addClass("mod-clickable")
@@ -295,6 +302,15 @@ export default class DatmePlugin extends Plugin {
     this.registerEditorSuggest(new PropertySuggest(this))
     this.registerEditorExtension(propertyLinter(this))
     this.registerEditorExtension(privateLinkMarker(this))
+    this.registerEditorExtension(checkMarks(this))
+    // Problems shown in the editor follow the note: checked again once it is saved, never while typing.
+    if (desktop) {
+      this.registerEvent(
+        this.app.vault.on("modify", (f) => {
+          if (this.settings.checkOnSave && f instanceof TFile && f.extension === "md") this.recheck()
+        }),
+      )
+    }
     this.registerMarkdownPostProcessor((el, ctx) => markRenderedLinks(this, el, ctx))
     // Links to a note look private or not by its state: when one changes, they are drawn again.
     this.registerEvent(
@@ -394,16 +410,19 @@ export default class DatmePlugin extends Plugin {
     const fm = this.app.metadataCache.getFileCache(file)?.frontmatter
     const { state, date } = noteState(fm, this.mode, new Date())
     const text = { published: "🌱 Published", private: "🔒 Private", draft: "📝 Draft", scheduled: `⏳ ${date}` }
-    // Properties datme would not take: counted here, since the Properties view hides the underlines.
-    const problems = propertyProblems(fm, this.config)
-    this.statusEl.setText(text[state] + (problems.length ? ` · ⚠️ ${problems.length}` : ""))
+    // Properties datme would not take, and what the last check found in the note: counted here,
+    // since the Properties view hides the underlines. A property datme check reports too counts once.
+    const found: { level: Problem["level"]; message: string }[] = noteProblems(this.report?.result, file.path, this.settings.showNotices)
+    for (const p of propertyProblems(fm, this.config)) if (!found.some((f) => f.message === p.message)) found.push({ level: "warning", message: p.message })
+    this.statusEl.setText(text[state] + (found.length ? ` · ⚠️ ${found.length}` : ""))
     const label =
       state === "private"
         ? "Click to publish this note with datme"
         : state === "published"
           ? "datme publishes this note; click to unpublish"
           : `datme publishes this note ${state === "draft" ? "once draft is removed" : `on ${date}`}; click to unpublish`
-    this.statusEl.setAttribute("aria-label", [label, ...problems.map((p) => `⚠️ ${p.message}`)].join("\n"))
+    const icon = { error: "⛔", warning: "⚠️", info: "ℹ️" }
+    this.statusEl.setAttribute("aria-label", [label, ...found.map((p) => `${icon[p.level]} ${p.message}`)].join("\n"))
   }
 
   async togglePublish(file = this.markdownFile()) {
@@ -544,8 +563,7 @@ export default class DatmePlugin extends Plugin {
     const notice = new Notice("🌱 datme is checking the garden…", 0)
     let result: CheckResult
     try {
-      const out = await this.run(["check", this.vaultPath(), "--json"])
-      result = parseCheck(out.stdout)
+      result = await this.runCheck()
     } catch (e) {
       notice.hide()
       return void new Notice(`datme could not check the garden: ${(e as Error).message}. Is the command right in the settings?`, 8000)
@@ -553,10 +571,44 @@ export default class DatmePlugin extends Plugin {
     notice.hide()
     new Notice(`datme: ${summary(result.counts)}`)
     new ProblemsModal(this.app, result, this.settings.showNotices).open()
-    this.report = { result, at: Date.now() }
+  }
+
+  private checking: Promise<CheckResult> | undefined
+
+  /** Run datme check, once at a time; its report becomes the last one, shown in the editors. Throws when datme cannot run. */
+  runCheck(): Promise<CheckResult> {
+    return (this.checking ??= this.checkOnce().finally(() => (this.checking = undefined)))
+  }
+
+  private async checkOnce(): Promise<CheckResult> {
+    // The report is as old as the notes it read: a note saved after this has moved on.
+    const at = Date.now()
+    await checkStarts(this)
+    let result: CheckResult
+    try {
+      result = parseCheck((await this.run(["check", this.vaultPath(), "--json"])).stdout)
+    } catch (e) {
+      checkFailed()
+      throw e
+    }
+    this.report = { result, at }
+    showProblems(this)
+    this.updateStatus()
     this.tendingChanged()
     if (this.settings.saveReport) await this.saveReport(result)
+    return result
   }
+
+  /** A note was saved: check again once the saving stops; after the running check, if one runs. */
+  private recheck = debounce(
+    () => {
+      if (this.checking) return void this.checking.finally(() => this.recheck())
+      // A failure here is quiet: the next save or "Check the garden" says it.
+      this.runCheck().catch(() => undefined)
+    },
+    3000,
+    true,
+  )
 
   /** Keep the report in the vault, where the plugin on another device finds it once the vault syncs. */
   private async saveReport(result: CheckResult) {
@@ -1028,6 +1080,17 @@ class DatmeSettings extends PluginSettingTab {
           await this.plugin.saveSettings()
         }),
       )
+    if (Platform.isDesktopApp) {
+      new Setting(containerEl)
+        .setName("Check again when a note is saved")
+        .setDesc("Run datme check a few seconds after you save a note, so the problems underlined in the editor stay current.")
+        .addToggle((t) =>
+          t.setValue(this.plugin.settings.checkOnSave).onChange(async (v) => {
+            this.plugin.settings.checkOnSave = v
+            await this.plugin.saveSettings()
+          }),
+        )
+    }
     new Setting(containerEl)
       .setName("Badges in the file explorer")
       .setDesc("Show beside each note whether datme publishes it (🌱 published, 🔒 private, 📝 draft, ⏳ scheduled, 👁 unlisted), and beside each folder how many of its notes it publishes.")
@@ -1101,6 +1164,7 @@ class DatmeSettings extends PluginSettingTab {
         t.setValue(this.plugin.settings.showNotices).onChange(async (v) => {
           this.plugin.settings.showNotices = v
           await this.plugin.saveSettings()
+          showProblems(this.plugin)
         }),
       )
   }

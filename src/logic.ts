@@ -47,6 +47,11 @@ export interface Problem {
   file: string
   message: string
   url?: string
+  /** Where in the file, since report format 2: 1-based, in the raw file with its frontmatter, columns in UTF-16 units, end exclusive. */
+  line?: number
+  column?: number
+  endLine?: number
+  endColumn?: number
 }
 
 export interface CheckResult {
@@ -116,6 +121,55 @@ export function groupProblems(problems: Problem[], withInfo = false): [string, P
   return [...byFile.entries()]
     .map(([file, ps]) => [file, ps.sort((a, b) => rank[a.level] - rank[b.level])] as [string, Problem[]])
     .sort((a, b) => worst(a[1]) - worst(b[1]) || a[0].localeCompare(b[0]))
+}
+
+/** The problems of one note, notices only when asked for. */
+export function noteProblems(report: CheckResult | undefined, path: string, withInfo = false): Problem[] {
+  return (report?.problems ?? []).filter((p) => p.file === path && (withInfo || p.level !== "info"))
+}
+
+/** Lines of a document, as CodeMirror's Text gives them: 1-based, offsets from its start. */
+export interface Lines {
+  lines: number
+  line(n: number): { from: number; to: number }
+}
+
+/**
+ * The offsets a problem covers in a document, or undefined when it has no
+ * place in it. With only a line, the whole line; with a start but no end, the
+ * rest of the line.
+ */
+export function problemRange(p: Problem, doc: Lines): { from: number; to: number } | undefined {
+  if (!p.line || p.line < 1 || p.line > doc.lines) return undefined
+  const at = (n: number, column: number | undefined, fallback: "from" | "to") => {
+    const line = doc.line(n)
+    return column ? Math.min(line.from + Math.max(column - 1, 0), line.to) : line[fallback]
+  }
+  const from = at(p.line, p.column, "from")
+  const to = at(Math.min(p.endLine ?? p.line, doc.lines), p.endColumn, "to")
+  return { from, to: Math.max(from, to) }
+}
+
+/**
+ * Where problems go in a document: their ranges in the document the check
+ * read, moved through what changed since by `map` (CodeMirror's mapPos),
+ * which answers null for a place whose text was deleted.
+ */
+export function placeProblems(
+  problems: Problem[],
+  doc: Lines,
+  map: (pos: number, assoc: -1 | 1) => number | null = (pos) => pos,
+): { from: number; to: number; level: Problem["level"]; message: string }[] {
+  const out = []
+  for (const p of problems) {
+    const range = problemRange(p, doc)
+    if (!range) continue
+    const from = map(range.from, 1)
+    const to = map(range.to, -1)
+    if (from === null || to === null) continue
+    out.push({ from, to: Math.max(from, to), level: p.level, message: p.message })
+  }
+  return out
 }
 
 /** One line for the notice after a check. */

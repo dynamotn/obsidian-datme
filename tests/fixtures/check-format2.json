@@ -1,0 +1,45 @@
+{
+  "format": 2,
+  "counts": {
+    "error": 3,
+    "warning": 1,
+    "info": 1
+  },
+  "problems": [
+    {
+      "level": "warning",
+      "file": "01_Fleeting/Broken frontmatter.md",
+      "message": "frontmatter is not valid YAML, so it is ignored: unexpected end of the stream within a flow collection (2:12)",
+      "line": 3,
+      "column": 12
+    },
+    {
+      "level": "error",
+      "file": "03_Atomic/Zettelkasten.md",
+      "message": "link to missing note \"Missing note\"",
+      "line": 33,
+      "column": 8,
+      "endLine": 33,
+      "endColumn": 24
+    },
+    {
+      "level": "info",
+      "file": "03_Atomic/Zettelkasten.md",
+      "message": "link to unpublished note \"Private\" shows its name as plain text; privateLinks: placeholder or hide keeps it off the site",
+      "line": 33,
+      "column": 26,
+      "endLine": 33,
+      "endColumn": 37
+    },
+    {
+      "level": "error",
+      "file": "07_Project/Blog post.md",
+      "message": "locked part @testers needs the DATME_LOCK_TESTERS environment variable; it is left out"
+    },
+    {
+      "level": "error",
+      "file": "07_Project/Blog post.md",
+      "message": "locked part @nobody needs the DATME_LOCK_NOBODY environment variable; it is left out"
+    }
+  ]
+}
