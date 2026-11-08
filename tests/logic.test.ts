@@ -49,7 +49,9 @@ import {
   locate,
   mentionLink,
   noteState,
+  compareVersions,
   parseCheck,
+  versionProblem,
   parseSuggestions,
   previewUrl,
   relatedWhy,
@@ -100,6 +102,24 @@ describe("running datme", () => {
     const r = parseCheck('Checking…\n{"counts":{"error":1,"warning":0,"info":0},"problems":[{"level":"error","file":"a.md","message":"x"}]}\n')
     expect(r.counts.error).toBe(1)
     expect(() => parseCheck("command not found")).toThrow("did not answer")
+  })
+
+  test("report formats 1 and 2 are read, a newer one is refused", () => {
+    const body = '"counts":{"error":0,"warning":0,"info":0},"problems":[]'
+    expect(parseCheck(`{${body}}`).counts.error).toBe(0)
+    expect(parseCheck(`warn\n{"format":2,${body}}`).format).toBe(2)
+    expect(() => parseCheck(`{"format":3,${body}}`)).toThrow("update the plugin")
+    expect(() => parseSuggestions('{"format":3,"file":"a.md","related":[],"mentions":[]}')).toThrow("update the plugin")
+    expect(parseSuggestions('{"format":2,"file":"a.md","related":[],"mentions":[]}').file).toBe("a.md")
+  })
+
+  test("datme versions compare and the supported range is 3.2 up to 5", () => {
+    expect(compareVersions("3.10.0", "3.9.9")).toBeGreaterThan(0)
+    expect(compareVersions("datme 4.0.0", "4.0.0")).toBe(0)
+    for (const ok of ["3.2.0", "3.9.1", "4.0.0\n", "datme v4.3.2"]) expect(versionProblem(ok)).toBeUndefined()
+    expect(versionProblem("3.1.9")).toContain("bunx @dynamotn/datme@4")
+    expect(versionProblem("5.0.0")).toContain("Update the plugin")
+    expect(versionProblem("not a version")).toBeUndefined()
   })
 
   test("problems group by file, the worst first, notices only on request", () => {

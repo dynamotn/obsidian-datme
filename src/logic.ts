@@ -50,15 +50,56 @@ export interface Problem {
 }
 
 export interface CheckResult {
+  /** The report format: absent in format 1. */
+  format?: number
   counts: { error: number; warning: number; info: number }
   problems: Problem[]
 }
 
+/** The JSON report formats the plugin reads: 1 has no `format` field. */
+export const REPORT_FORMAT = 2
+
+/** The datme versions the plugin supports: from 3.2.0 up to, not including, 5.0.0. */
+export const DATME_MIN = "3.2.0"
+export const DATME_MAX = "5.0.0"
+
+/** [major, minor, patch] of the first x.y.z in a text, e.g. the output of `datme --version`. */
+export function parseVersion(text: string): [number, number, number] | undefined {
+  const m = /(\d+)\.(\d+)\.(\d+)/.exec(text)
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : undefined
+}
+
+/** Negative, zero or positive as version `a` is older than, the same as or newer than `b` (prereleases are ignored). */
+export function compareVersions(a: string, b: string): number {
+  const [x, y] = [parseVersion(a), parseVersion(b)]
+  if (!x || !y) throw new Error(`not a version: ${x ? b : a}`)
+  return x[0] - y[0] || x[1] - y[1] || x[2] - y[2]
+}
+
+/** What to tell the user about the datme version, or undefined when the plugin supports it. */
+export function versionProblem(output: string): string | undefined {
+  const v = parseVersion(output)
+  if (!v) return undefined
+  const version = v.join(".")
+  if (compareVersions(version, DATME_MIN) >= 0 && compareVersions(version, DATME_MAX) < 0) return undefined
+  const newer = compareVersions(version, DATME_MAX) >= 0
+  return `This plugin supports datme ${DATME_MIN} up to 5, and the vault runs ${version}. ${
+    newer ? "Update the plugin, or run" : "Install"
+  } datme 4 with \`bunx @dynamotn/datme@4\` (set it as the command in the plugin settings).`
+}
+
+/** Throws when a report comes from a datme newer than the formats the plugin reads. */
+function checkFormat(data: { format?: unknown }) {
+  if (data.format !== undefined && !(typeof data.format === "number" && data.format <= REPORT_FORMAT))
+    throw new Error(`this datme writes report format ${String(data.format)}, which this plugin cannot read: update the plugin`)
+}
+
 /** The JSON of `datme check --json`, which may follow lines the command printed first. */
 export function parseCheck(stdout: string): CheckResult {
-  const start = stdout.indexOf('{"counts"')
+  const start = stdout.search(/^\{/m)
   if (start < 0) throw new Error("datme did not answer with a check report")
   const data = JSON.parse(stdout.slice(start)) as CheckResult
+  checkFormat(data)
   if (!data.counts || !Array.isArray(data.problems)) throw new Error("datme did not answer with a check report")
   return data
 }
@@ -113,6 +154,7 @@ export interface Mention {
 }
 
 export interface Suggestions {
+  format?: number
   file: string
   published: boolean
   related: Related[]
@@ -121,9 +163,10 @@ export interface Suggestions {
 
 /** The JSON of `datme related --json`, which may follow lines the command printed first. */
 export function parseSuggestions(stdout: string): Suggestions {
-  const start = stdout.indexOf('{"file"')
+  const start = stdout.search(/^\{/m)
   if (start < 0) throw new Error("datme did not answer with suggestions")
   const data = JSON.parse(stdout.slice(start)) as Suggestions
+  checkFormat(data)
   if (!Array.isArray(data.related) || !Array.isArray(data.mentions)) throw new Error("datme did not answer with suggestions")
   return data
 }

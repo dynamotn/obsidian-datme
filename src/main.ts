@@ -39,6 +39,8 @@ import {
   noteState,
   parseCheck,
   parseSuggestions,
+  versionProblem,
+  parseVersion,
   notePath,
   previewUrl,
   propertyProblems,
@@ -125,6 +127,8 @@ export default class DatmePlugin extends Plugin {
   private statusEl: HTMLElement | undefined
   private tendEl: HTMLElement | undefined
   config: GardenConfig = gardenConfig(null)
+  /** The version `datme --version` printed at load; desktop only. */
+  datmeVersion: string | undefined
   /** The last check report, run here or saved by another device or CI; when it was made. */
   report: { result: CheckResult; at?: number } | undefined
   /** How the preview pane shows pages: light or dark, phone width, style and layout. */
@@ -145,6 +149,8 @@ export default class DatmePlugin extends Plugin {
 
     const desktop = Platform.isDesktopApp
     if (desktop) this.addRibbonIcon("sprout", "datme: preview this note", () => void this.openPreviewPane())
+    if (desktop)
+      this.app.workspace.onLayoutReady(() => void this.readDatmeVersion())
     this.tendEl = this.addStatusBarItem()
     this.tendEl.addClass("mod-clickable")
     this.tendEl.addEventListener("click", () => void this.openView(DASHBOARD_VIEW))
@@ -501,6 +507,19 @@ export default class DatmePlugin extends Plugin {
     const out = await this.run(["related", file.path, this.vaultPath(), "--json"])
     if (out.code !== 0) throw new Error(out.stderr.trim().split("\n").pop() || "datme related failed")
     return parseSuggestions(out.stdout)
+  }
+
+  /** Ask the command for its version once, and say so when the plugin does not support it. */
+  private async readDatmeVersion() {
+    try {
+      const out = await this.run(["--version"])
+      this.datmeVersion = parseVersion(out.stdout)?.join(".")
+      const problem = out.code === 0 ? versionProblem(out.stdout) : undefined
+      if (problem) new Notice(problem, 15000)
+    } catch {
+      // the command may not be set up yet: checks say so when they run
+    }
+    for (const leaf of this.app.workspace.getLeavesOfType(DASHBOARD_VIEW)) if (leaf.view instanceof DashboardView) leaf.view.refresh()
   }
 
   /** Run datme with these arguments; resolves with its output once it exits. */
@@ -876,6 +895,7 @@ class DashboardView extends ItemView {
     const el = this.contentEl
     el.empty()
     el.createEl("h4", { text: "Garden" })
+    el.createEl("p", { cls: "u-muted", text: `datme ${this.plugin.datmeVersion ?? "version unknown"} · plugin ${this.plugin.manifest.version}` })
     const list = el.createEl("ul")
     list.createEl("li", { text: `🌱 ${counts.published} published${counts.unlisted ? ` (${counts.unlisted} unlisted)` : ""}` })
     list.createEl("li", { text: `🔒 ${counts.private} private` })
