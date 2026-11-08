@@ -91,7 +91,7 @@ export function versionProblem(output: string): string | undefined {
 /** Throws when a report comes from a datme newer than the formats the plugin reads. */
 function checkFormat(data: { format?: unknown }) {
   if (data.format !== undefined && !(typeof data.format === "number" && data.format <= REPORT_FORMAT))
-    throw new Error(`this datme writes report format ${String(data.format)}, which this plugin cannot read: update the plugin`)
+    throw new Error(`this datme writes report format ${JSON.stringify(data.format)}, which this plugin cannot read: update the plugin`)
 }
 
 /** The JSON of `datme check --json`, which may follow lines the command printed first. */

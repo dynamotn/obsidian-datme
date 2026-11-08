@@ -312,7 +312,7 @@ export default class DatmePlugin extends Plugin {
   override onunload() {
     this.stopPreview()
     this.responses.stop()
-    for (const el of Array.from(document.querySelectorAll(".datme-badge"))) el.remove()
+    for (const el of Array.from(activeDocument.querySelectorAll(".datme-badge"))) el.remove()
   }
 
   /** The tending queue changed: a check, a note, a snooze. Its count and the dashboards follow. */
@@ -648,7 +648,7 @@ export default class DatmePlugin extends Plugin {
         notice.hide()
         return undefined
       }
-      await new Promise((r) => setTimeout(r, 500))
+      await new Promise((r) => window.setTimeout(r, 500))
     }
     notice.hide()
     return this.preview
