@@ -11,7 +11,7 @@ import { editorInfoField, TFile } from "obsidian"
 import { noteProblems, placeProblems } from "./logic"
 import type DatmePlugin from "./main"
 
-/** A check starts reading this document (or one unlike it on disk: null), or the places were shown. */
+/** A check starts reading this document, or the places of the last one are known in it from now; null: unknown. */
 const checkFrom = StateEffect.define<Text | null>()
 
 /** The document a running check reads, and the edits made since. */
@@ -46,7 +46,8 @@ export function checkMarks(plugin: DatmePlugin) {
           const path = fileOf(u.view)?.path
           if (path === this.path) return
           this.path = path
-          queueMicrotask(() => views.has(u.view) && showIn(plugin, u.view))
+          // The edits kept belong to the note that was there.
+          queueMicrotask(() => views.has(u.view) && showIn(plugin, u.view, true))
         }
         destroy() {
           views.delete(this.view)
@@ -77,17 +78,22 @@ export function showProblems(plugin: DatmePlugin) {
   for (const view of views) showIn(plugin, view)
 }
 
-/** Show the last report's problems in an editor, where they still have a place. */
-function showIn(plugin: DatmePlugin, view: EditorView) {
+/**
+ * Show the last report's problems in an editor, where they still have a
+ * place. The edits are kept until the next check, so showing them again
+ * later (another setting, the note swapped back) still finds their places.
+ */
+function showIn(plugin: DatmePlugin, view: EditorView, swapped = false) {
   const file = fileOf(view)
   if (!file) return
   const report = plugin.report
-  const tracked = view.state.field(sinceCheck, false)
-  // Without the check's own document, only a note unchanged since the check has its places right.
-  const base = tracked?.doc ?? (report?.at !== undefined && file instanceof TFile && file.stat.mtime <= report.at ? view.state.doc : undefined)
+  const tracked = swapped ? null : view.state.field(sinceCheck, false)
+  // Without the check's own document, only a note unchanged on disk since the check, and opened as it is there, has its places right.
+  const fresh = !tracked && report?.at !== undefined && file instanceof TFile && file.stat.mtime <= report.at
+  const base = tracked?.doc ?? (fresh ? view.state.doc : undefined)
   const problems = base ? noteProblems(report?.result, file.path, plugin.settings.showNotices) : []
   // A place whose text was deleted since is dropped.
   const map = tracked ? (pos: number, assoc: -1 | 1) => tracked.changes.mapPos(pos, assoc, MapMode.TrackDel) : undefined
   const diagnostics: Diagnostic[] = placeProblems(problems, base!, map).map((p) => ({ from: p.from, to: p.to, severity: p.level, message: p.message, source: "datme" }))
-  view.dispatch(setDiagnostics(view.state, diagnostics), { effects: checkFrom.of(null) })
+  view.dispatch(setDiagnostics(view.state, diagnostics), tracked ? {} : { effects: checkFrom.of(fresh ? view.state.doc : null) })
 }
