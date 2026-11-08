@@ -41,6 +41,7 @@ jobs:
         run: |
           test "$(jq -r .version manifest.json)" = "$GITHUB_REF_NAME"
           test "$(jq -r .version package.json)" = "$GITHUB_REF_NAME"
+          test "$(jq -r --arg v "$GITHUB_REF_NAME" '.[$v]' versions.json)" = "$(jq -r .minAppVersion manifest.json)"
       - run: bun run build
       - run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes main.js manifest.json styles.css
         env:
